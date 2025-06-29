@@ -1,15 +1,19 @@
+import { createServer } from "http";
 import express from "express";
-import dotenv from "dotenv";
+import { Server } from "socket.io";
+import dotenv from 'dotenv'
 
-dotenv.config();
+const app = express()
+const server = createServer(app);
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+dotenv.config()
 
-app.get("/", (_req, res) => {
-  res.send("Hello from TypeScript + Express!");
+const io = new Server(server, {
+  /* options */
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+io.on("connection", (socket) => {
+  // ...
 });
+
+export default server;
