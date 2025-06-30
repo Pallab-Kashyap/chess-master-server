@@ -1,52 +1,36 @@
-import { Schema, model, Document, Types } from "mongoose";
-import {  } from "../constants";
+import mongoose, { Schema, Document, Types } from "mongoose";
+import { GameTimeControll, PLAYER_COLOR, RESULT_TYPES } from "../constants";
 
-// 1. TypeScript interface
-export interface IPlayer {
+export interface IPlayer extends Document {
   userId: Types.ObjectId;
-  color: "white" | "black";
+  color: PLAYER_COLOR;
   preRating: number;
-  postRating?: number;
-  timeLeftHistory?: { moveNumber: number; timeLeft: number }[];
+  postRating: number;
 }
 
-export interface IAnalysisMove {
-  moveNumber: number;
-  engineEval: number;
-  bestMove: string;
-  moveAccuracy: number;
+export interface IMove extends Document {
+    move: string,
+    from: string,
+    to: string,
+    playedBy: PLAYER_COLOR,
+    timeStamp: Date
 }
 
-export interface IAnalysis {
+export interface IAnalysis extends Document {
   isAnalysed: boolean;
-  overallAccuracy?: number;
-  depth?: number;
-  perMove?: IAnalysisMove[];
+  accuracy: {
+    white: number;
+    black: number;
+  };
+  analisis?: Types.ObjectId;
 }
 
-export interface ITimeControl {
-  baseMs: number;
-  incrementMs: number;
-}
-
-export interface IResult {
-  winner: "white" | "black" | null;
-  reason:
-    | "checkmate"
-    | "resignation"
-    | "timeout"
-    | "stalemate"
-    | "agreement"
-    | "threefold"
-    | "insufficientMaterial";
+export interface IResult extends Document {
+  winner: PLAYER_COLOR | null;
+  reason: RESULT_TYPES;
   score: "1-0" | "0-1" | "1/2-1/2";
 }
 
-export interface IChatMessage {
-  userId: Types.ObjectId;
-  message: string;
-  at: Date;
-}
 
 export interface IGame extends Document {
   players: IPlayer[];
@@ -54,18 +38,16 @@ export interface IGame extends Document {
   moves: string[];
   fenHistory?: string[];
   pgn: string;
-  timeControl: ITimeControl;
+  timeControl: GameTimeControll;
   result: IResult;
   analysis: IAnalysis;
-  spectators?: Types.ObjectId[];
-  chat?: IChatMessage[];
+  variant?: string;
   createdAt: Date;
   updatedAt: Date;
   startedAt?: Date;
   endedAt?: Date;
 }
 
-// 2. Mongoose Schema
 const PlayerSchema = new Schema<IPlayer>(
   {
     userId: {
@@ -77,22 +59,6 @@ const PlayerSchema = new Schema<IPlayer>(
     color: { type: String, enum: ["white", "black"], required: true },
     preRating: { type: Number, required: true },
     postRating: { type: Number, default: null },
-    timeLeftHistory: [
-      {
-        moveNumber: { type: Number, required: true },
-        timeLeft: { type: Number, required: true },
-      },
-    ],
-  },
-  { _id: false }
-);
-
-const AnalysisMoveSchema = new Schema<IAnalysisMove>(
-  {
-    moveNumber: { type: Number, required: true },
-    engineEval: { type: Number, required: true },
-    bestMove: { type: String, required: true },
-    moveAccuracy: { type: Number, required: true },
   },
   { _id: false }
 );
@@ -100,17 +66,18 @@ const AnalysisMoveSchema = new Schema<IAnalysisMove>(
 const AnalysisSchema = new Schema<IAnalysis>(
   {
     isAnalysed: { type: Boolean, required: true, default: false },
-    overallAccuracy: { type: Number, default: null },
-    depth: { type: Number, default: null },
-    perMove: [AnalysisMoveSchema],
-  },
-  { _id: false }
-);
-
-const TimeControlSchema = new Schema<ITimeControl>(
-  {
-    baseMs: { type: Number, required: true },
-    incrementMs: { type: Number, required: true },
+    accuracy: {
+        white: {
+            type: Number,
+        },
+        black: {
+            type: Number
+        }
+    },
+    analisis: {
+        type: Types.ObjectId,
+        ref: 'Analysis'
+    }
   },
   { _id: false }
 );
@@ -120,27 +87,10 @@ const ResultSchema = new Schema<IResult>(
     winner: { type: String, enum: ["white", "black", null], default: null },
     reason: {
       type: String,
-      enum: [
-        "checkmate",
-        "resignation",
-        "timeout",
-        "stalemate",
-        "agreement",
-        "threefold",
-        "insufficientMaterial",
-      ],
+      enum: RESULT_TYPES,
       required: true,
     },
     score: { type: String, enum: ["1-0", "0-1", "1/2-1/2"], required: true },
-  },
-  { _id: false }
-);
-
-const ChatMessageSchema = new Schema<IChatMessage>(
-  {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    message: { type: String, required: true },
-    at: { type: Date, default: Date.now },
   },
   { _id: false }
 );
@@ -155,9 +105,9 @@ const GameSchema = new Schema<IGame>(
 
     initialFen: { type: String, required: true, default: "startpos" },
     moves: { type: [String], required: true, default: [] },
+    fenHistory: { type: [String], default: [] },
     pgn: { type: String, required: true },
 
-    timeControl: { type: TimeControlSchema, required: true },
     result: { type: ResultSchema, required: true },
     analysis: {
       type: AnalysisSchema,
@@ -165,8 +115,7 @@ const GameSchema = new Schema<IGame>(
       default: () => ({ isAnalysed: false }),
     },
 
-    spectators: [{ type: Schema.Types.ObjectId, ref: "User" }],
-    chat: { type: [ChatMessageSchema], default: [] },
+    variant: { type: String, default: "standard" },
 
     startedAt: { type: Date, default: null },
     endedAt: { type: Date, default: null },
@@ -174,9 +123,9 @@ const GameSchema = new Schema<IGame>(
   { timestamps: true }
 );
 
-// 3. Indexes for performance
 GameSchema.index({ "players.userId": 1 });
 GameSchema.index({ endedAt: -1 });
 
-// 4. Export
-export const GameModel = model<IGame>("Game", GameSchema);
+const GameModel = mongoose.model<IGame>("Game", GameSchema);
+
+export default GameModel

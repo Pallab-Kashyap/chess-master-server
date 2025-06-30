@@ -41,3 +41,18 @@ export const enum SOCKET_MESSAGE_TYPE {
   OFFER_REMATCH = "offer_rematch",
   ACCEPT_REMATCH = "accept_rematch",
 }
+
+export const enum PLAYER_COLOR {
+  WHITE = 'white',
+  BLACK = 'black'
+}
+
+export enum RESULT_TYPES {
+  CHECKMATE = "checkmate",
+  RESIGN = "resignation",
+  TIMEOUT = "timeout",
+  STALEMATE = "stalemate",
+  DRAW = "agreement",
+  THREEFOLD = "threefold",
+  INSUFFICIENT_MATERIAL = "insufficient_material",
+}
