@@ -9,11 +9,11 @@ export interface IPlayer extends Document {
 }
 
 export interface IMove extends Document {
-    move: string,
-    from: string,
-    to: string,
-    playedBy: PLAYER_COLOR,
-    timeStamp: Date
+  move: string;
+  from: string;
+  to: string;
+  playedBy: PLAYER_COLOR;
+  timeStamp: Date;
 }
 
 export interface IAnalysis extends Document {
@@ -30,7 +30,6 @@ export interface IResult extends Document {
   reason: RESULT_TYPES;
   score: "1-0" | "0-1" | "1/2-1/2";
 }
-
 
 export interface IGame extends Document {
   players: IPlayer[];
@@ -67,17 +66,17 @@ const AnalysisSchema = new Schema<IAnalysis>(
   {
     isAnalysed: { type: Boolean, required: true, default: false },
     accuracy: {
-        white: {
-            type: Number,
-        },
-        black: {
-            type: Number
-        }
+      white: {
+        type: Number,
+      },
+      black: {
+        type: Number,
+      },
     },
     analisis: {
-        type: Types.ObjectId,
-        ref: 'Analysis'
-    }
+      type: Types.ObjectId,
+      ref: "Analysis",
+    },
   },
   { _id: false }
 );
@@ -128,4 +127,4 @@ GameSchema.index({ endedAt: -1 });
 
 const GameModel = mongoose.model<IGame>("Game", GameSchema);
 
-export default GameModel
+export default GameModel;

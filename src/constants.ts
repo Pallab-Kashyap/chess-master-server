@@ -56,3 +56,8 @@ export enum RESULT_TYPES {
   THREEFOLD = "threefold",
   INSUFFICIENT_MATERIAL = "insufficient_material",
 }
+
+export enum CLIENT_TYPE {
+  PLAYER = 'player',
+  SPECTATOR = 'spectator'
+}
