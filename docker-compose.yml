@@ -15,10 +15,18 @@ services:
 
   redis:
     image: redis:7.4.5-alpine3.21
+    restart: always
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"
+    restart: always
 
 volumes:
   redis-data:

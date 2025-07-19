@@ -55,9 +55,11 @@ export enum RESULT_TYPES {
   DRAW = "agreement",
   THREEFOLD = "threefold",
   INSUFFICIENT_MATERIAL = "insufficient_material",
+  ON_GOING = "on_going"
 }
 
 export enum CLIENT_TYPE {
   PLAYER = 'player',
   SPECTATOR = 'spectator'
 }
+

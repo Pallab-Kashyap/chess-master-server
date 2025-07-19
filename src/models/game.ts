@@ -10,9 +10,8 @@ export interface IPlayer extends Document {
 
 export interface IMove extends Document {
   move: string;
-  from: string;
-  to: string;
-  playedBy: PLAYER_COLOR;
+  from?: string;
+  to?: string;
   timeStamp: Date;
 }
 
