@@ -2,6 +2,7 @@ import { createServer } from "http";
 import express, { request, response } from "express";
 import { Server } from "socket.io";
 import dotenv from 'dotenv'
+import errorHandler from "./middlewares/errorHandler";
 
 const app = express()
 const server = createServer(app);
@@ -11,6 +12,10 @@ dotenv.config()
 app.get('/', (request, response) => {
   response.send('<h1>hellow<h1>')
 })
+
+
+
+app.use(errorHandler)
 
 const io = new Server(server, {
   /* options */

@@ -63,3 +63,14 @@ export enum CLIENT_TYPE {
   SPECTATOR = 'spectator'
 }
 
+export enum QUEUE_TYPES {
+  "RAPID-10-0" = "10/0",
+  "RAPID-15-10" = "15/10",
+  "RAPID-30-0" = "30/0",
+  "BLITZ-3-0" = "3/0",
+  "BLITZ-3-2" = "3/2",
+  "BLITZ-5-0" = "5/0",
+  "BULLET-1-0" = "1/0",
+  "BULLET-1-1" = "1/1",
+  "BULLET-2-1" = "2/1"
+}
