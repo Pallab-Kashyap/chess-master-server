@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import { GameTimeControll, PLAYER_COLOR, RESULT_TYPES } from "../constants";
+import { GAME_VARIANTS, PLAYER_COLOR, RESULT_TYPES } from "../constants";
 
 export interface IPlayer extends Document {
   userId: Types.ObjectId;
@@ -15,15 +15,6 @@ export interface IMove extends Document {
   timeStamp: Date;
 }
 
-export interface IAnalysis extends Document {
-  isAnalysed: boolean;
-  accuracy: {
-    white: number;
-    black: number;
-  };
-  analisis?: Types.ObjectId;
-}
-
 export interface IResult extends Document {
   winner: PLAYER_COLOR | null;
   reason: RESULT_TYPES;
@@ -36,12 +27,12 @@ export interface IGame extends Document {
   moves: string[];
   fenHistory?: string[];
   pgn: string;
-  timeControl: GameTimeControll;
   result: IResult;
-  analysis: IAnalysis;
-  variant?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  variant: GAME_VARIANTS,
+  timeControl: {
+    time: number,
+    increment: number
+  },
   startedAt?: Date;
   endedAt?: Date;
 }
@@ -61,24 +52,6 @@ const PlayerSchema = new Schema<IPlayer>(
   { _id: false }
 );
 
-const AnalysisSchema = new Schema<IAnalysis>(
-  {
-    isAnalysed: { type: Boolean, required: true, default: false },
-    accuracy: {
-      white: {
-        type: Number,
-      },
-      black: {
-        type: Number,
-      },
-    },
-    analisis: {
-      type: Types.ObjectId,
-      ref: "Analysis",
-    },
-  },
-  { _id: false }
-);
 
 const ResultSchema = new Schema<IResult>(
   {
@@ -86,9 +59,8 @@ const ResultSchema = new Schema<IResult>(
     reason: {
       type: String,
       enum: RESULT_TYPES,
-      required: true,
     },
-    score: { type: String, enum: ["1-0", "0-1", "1/2-1/2"], required: true },
+    score: { type: String, enum: ["1-0", "0-1", "1/2-1/2"] },
   },
   { _id: false }
 );
@@ -101,24 +73,28 @@ const GameSchema = new Schema<IGame>(
       validate: (v: IPlayer[]) => v.length === 2,
     },
 
-    initialFen: { type: String, required: true, default: "startpos" },
+    initialFen: { type: String, required: true, default: "" },
     moves: { type: [String], required: true, default: [] },
     fenHistory: { type: [String], default: [] },
-    pgn: { type: String, required: true },
+    pgn: { type: String, required: true, default: "" },
 
     result: { type: ResultSchema, required: true },
-    analysis: {
-      type: AnalysisSchema,
-      required: true,
-      default: () => ({ isAnalysed: false }),
+
+    variant: { type: String, enum: Object.values(GAME_VARIANTS), required: true},
+    timeControl: {
+      time: {
+        type: Number,
+        required: true,
+      },
+      increment: {
+        type: Number,
+        required: true,
+        default: 0,
+      }
     },
-
-    variant: { type: String, default: "standard" },
-
     startedAt: { type: Date, default: null },
     endedAt: { type: Date, default: null },
   },
-  { timestamps: true }
 );
 
 GameSchema.index({ "players.userId": 1 });

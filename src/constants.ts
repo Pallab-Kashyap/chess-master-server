@@ -1,34 +1,37 @@
-export enum GameSpeed {
-  Bullet = "bullet",
-  Blitz = "blitz",
-  Rapid = "rapid",
-}
+// export enum GameVariant {
+//   BULLET = "bullet",
+//   BLITZ = "blitz",
+//   RAPID = "rapid",
+// }
 
 type GameTime = { time: number; increment: number };
 
-export type GameTimeControll = {
-  [key in GameSpeed]: GameTime[];
-};
+// export type GameTimeControll = {
+//   [key in GameVariant]: GameTime[];
+// };
 
-export const GAME_TIME_CONTROL_OPTIONS: GameTimeControll = {
-  [GameSpeed.Bullet]: [
-    { time: 60, increment: 0 },
-    { time: 120, increment: 1 },
-  ],
-  [GameSpeed.Blitz]: [
-    { time: 180, increment: 0 },
-    { time: 180, increment: 2 },
-    { time: 300, increment: 0 },
-  ],
-  [GameSpeed.Rapid]: [
-    { time: 600, increment: 0 },
-    { time: 900, increment: 10 },
-    { time: 1800, increment: 0 },
-  ],
-} as const;
+// export const GAME_TIME_CONTROL_OPTIONS: GameTimeControll = {
+//   [GameVariant.BULLET]: [
+//     { time: 60, increment: 0 },
+//     { time: 60, increment: 1 },
+//     { time: 120, increment: 1 },
+//   ],
+//   [GameVariant.BLITZ]: [
+//     { time: 180, increment: 0 },
+//     { time: 180, increment: 2 },
+//     { time: 300, increment: 0 },
+//   ],
+//   [GameVariant.RAPID]: [
+//     { time: 600, increment: 0 },
+//     { time: 900, increment: 10 },
+//     { time: 1800, increment: 0 },
+//   ],
+// } as const;
 
 export const enum SOCKET_MESSAGE_TYPE {
+  SOCEKT_CONNECTION_HEALTH = "socket_connection_health",
   INIT = "init_game",
+  FINDING_OPPONENT = "findin_opponent",
   START = "start_game",
   MOVE = "move",
   CHAT = "chat_message",
@@ -43,8 +46,8 @@ export const enum SOCKET_MESSAGE_TYPE {
 }
 
 export const enum PLAYER_COLOR {
-  WHITE = 'white',
-  BLACK = 'black'
+  WHITE = "white",
+  BLACK = "black",
 }
 
 export enum RESULT_TYPES {
@@ -55,22 +58,38 @@ export enum RESULT_TYPES {
   DRAW = "agreement",
   THREEFOLD = "threefold",
   INSUFFICIENT_MATERIAL = "insufficient_material",
-  ON_GOING = "on_going"
+  ON_GOING = "on_going",
 }
 
 export enum CLIENT_TYPE {
-  PLAYER = 'player',
-  SPECTATOR = 'spectator'
+  PLAYER = "player",
+  SPECTATOR = "spectator",
 }
 
-export enum QUEUE_TYPES {
-  "RAPID-10-0" = "10/0",
-  "RAPID-15-10" = "15/10",
-  "RAPID-30-0" = "30/0",
-  "BLITZ-3-0" = "3/0",
-  "BLITZ-3-2" = "3/2",
-  "BLITZ-5-0" = "5/0",
-  "BULLET-1-0" = "1/0",
-  "BULLET-1-1" = "1/1",
-  "BULLET-2-1" = "2/1"
+export const GAME_TYPES = {
+  RAPID: {
+    RAPID_10_0: { time: 600, increment: 0 },
+    RAPID_15_10: { time: 900, increment: 10 },
+    RAPID_30_0: { time: 1800, increment: 0 },
+  },
+  BLITZ: {
+    BLITZ_3_0: { time: 180, increment: 0 },
+    BLITZ_3_2: { time: 180, increment: 2 },
+    BLITZ_5_0: { time: 300, increment: 0 },
+  },
+  BULLET: {
+    BULLET_1_0: { time: 60, increment: 0 },
+    BULLET_1_1: { time: 60, increment: 1 },
+    BULLET_2_1: { time: 120, increment: 1 },
+  },
+} as const
+
+export enum GAME_VARIANTS {
+  RAPID = "RAPID",
+  BLITZ = "BLITZ",
+  BULLET = "BULLET"
 }
+
+export type GAME_TYPE_KEYS = {
+  [K in GAME_VARIANTS]: keyof (typeof GAME_TYPES)[K];
+}[GAME_VARIANTS];
