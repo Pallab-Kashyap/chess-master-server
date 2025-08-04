@@ -12,3 +12,10 @@ export const deletePlayerHash = async (playerId: string) => {
 export const getPlayerHash = async (playerId: string) => {
     return await redis.hgetall(`player:${playerId}`)
 }
+
+export const updateSocketId = async (
+  playerId: string,
+  wsId: string,
+) => {
+  await redis.hmset(`player:${playerId}`, "wsId", wsId);
+};

@@ -4,7 +4,7 @@
 //   RAPID = "rapid",
 // }
 
-type GameTime = { time: number; increment: number };
+export type TimeControl = { time: number; increment: number };
 
 // export type GameTimeControll = {
 //   [key in GameVariant]: GameTime[];
@@ -34,6 +34,7 @@ export const enum SOCKET_MESSAGE_TYPE {
   FINDING_OPPONENT = "findin_opponent",
   START = "start_game",
   MOVE = "move",
+  NOT_YOUR_TURN = "not_your_turn",
   CHAT = "chat_message",
   GAME_OVER = "game_over",
   REJOIN = "rejoin",
@@ -43,6 +44,7 @@ export const enum SOCKET_MESSAGE_TYPE {
   DECLINE_DRAW = "decline_draw",
   OFFER_REMATCH = "offer_rematch",
   ACCEPT_REMATCH = "accept_rematch",
+  OPPONENT_RECONNECTING = "opponent_reconnecting",
 }
 
 export const enum PLAYER_COLOR {

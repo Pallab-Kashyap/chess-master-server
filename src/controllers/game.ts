@@ -3,13 +3,22 @@ import asyncWrapper from "../utils/asyncWrapper";
 import APIError from "../utils/APIError";
 import {
   addPlayerToQueue,
+  checkPlayerAvialabilityForGame,
   getOpponentInRange,
   removePlayerFromQueue,
-} from "../utils/redis/matchMakingQueue";
-import { GAME_TYPE_KEYS, GAME_TYPES, GAME_VARIANTS } from "../constants";
+} from "../services/redis/matchMakingQueue";
+import {
+  GAME_TYPE_KEYS,
+  GAME_TYPES,
+  GAME_VARIANTS,
+  TimeControl,
+} from "../constants";
 import UserProfileModel from "../models/userProfile";
 import GameModel from "../models/game";
-import { getPlayerHash } from "../utils/redis/playerHash";
+import { createPlayerHash, getPlayerHash } from "../services/redis/playerHash";
+import { createGameHash } from "../services/redis/gameHash";
+import { generateToken } from "../utils/generateToken";
+import APIResponse from "../utils/APIResponse";
 
 export const getValidTimeControl = (
   variant: string,
@@ -35,15 +44,16 @@ export const createGame = asyncWrapper(
       throw APIError.badRequest("gameType is an required field");
     }
 
-
-    const timeControl = getValidTimeControl(gameVariant, gameType)
+    const timeControl = getValidTimeControl(
+      gameVariant,
+      gameType
+    ) as TimeControl;
 
     const userProfile = await UserProfileModel.findOne({
       userId: req.user?.userId,
-    })
-      .select(`rating`)
+    }).select(`rating`);
 
-    const ratingValue = userProfile?.rating?.[gameVariant.toLowerCase()]
+    const ratingValue = userProfile?.rating?.[gameVariant.toLowerCase()];
 
     if (typeof ratingValue !== "number") {
       throw APIError.internal("User rating not found or invalid");
@@ -57,31 +67,45 @@ export const createGame = asyncWrapper(
 
     if (!opponents) {
       await addPlayerToQueue(gameType, req.user?.userId!, ratingValue);
+      await createPlayerHash(req.user?.userId!, 'wsId', ratingValue)
+      const token = generateToken({userId: req.user?.userId!})
+      return APIResponse.success(res, "Searching for opponent", { wsToken: token })
     } else {
-      for (const opponent in opponents){
+      for (const opponent in opponents) {
         const playerDetails = await getPlayerHash(opponent);
         if (!playerDetails) {
-            await removePlayerFromQueue(gameType, opponent)
-        }else{
-            const game = await GameModel.create({
-                players: [
-                    {
-                        userId: req.user?.userId,
-                        color: 'white',
-                        preRating: ratingValue,
-                    },
-                    {
-                        userId: opponent,
-                        color: 'black',
-                        preRating: playerDetails.rating
-                    }
-                ]
-            });
+          await removePlayerFromQueue(gameType, opponent);
+        } else {
+          if (!checkPlayerAvialabilityForGame(gameType, opponent)) {
+            await removePlayerFromQueue(gameType, opponent);
+            continue;
+          }
+          const game = await GameModel.create({
+            players: [
+              {
+                userId: req.user?.userId,
+                color: "white",
+                preRating: ratingValue,
+              },
+              {
+                userId: opponent,
+                color: "black",
+                preRating: playerDetails.rating,
+              },
+            ],
+            variant: gameVariant,
+            timeControl,
+          });
 
-            break;
+          if (!game) {
+            throw APIError.internal("Failed to create game");
+          }
+
+          await createGameHash(game._id);
+
+          break;
         }
       }
-
     }
   }
 );

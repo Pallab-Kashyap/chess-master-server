@@ -22,3 +22,17 @@ export const getOpponentInRange = async (
     // .then((list) => list.slice(list.length / 2, list.length / 2 + 1));
 };
 
+export const checkPlayerAvialabilityForGame = async (gameType: string, playerId: string) => {
+  const script = `
+  local exists = redis.call("ZSCORE", KEYS[1], ARGV[1])
+  if exists then
+    redis.call("REM", KEYS[1], ARGV[1])
+    return 1
+  else
+    return 0
+  end
+  `
+
+  return await redis.eval(script, `match-making-queue:${gameType}`, playerId);
+}
+

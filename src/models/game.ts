@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import { GAME_VARIANTS, PLAYER_COLOR, RESULT_TYPES } from "../constants";
+import { GAME_VARIANTS, PLAYER_COLOR, RESULT_TYPES, TimeControl } from "../constants";
 
 export interface IPlayer extends Document {
   userId: Types.ObjectId;
@@ -23,16 +23,14 @@ export interface IResult extends Document {
 
 export interface IGame extends Document {
   players: IPlayer[];
+  status: "completed" | "on-going";
   initialFen: string;
-  moves: string[];
+  moves: IMove[];
   fenHistory?: string[];
   pgn: string;
   result: IResult;
-  variant: GAME_VARIANTS,
-  timeControl: {
-    time: number,
-    increment: number
-  },
+  variant: GAME_VARIANTS;
+  timeControl: TimeControl;
   startedAt?: Date;
   endedAt?: Date;
 }
@@ -52,6 +50,22 @@ const PlayerSchema = new Schema<IPlayer>(
   { _id: false }
 );
 
+const MoveSchema = new Schema<IMove>({
+  move: {
+    type: String,
+    required: true
+  },
+  from: {
+    type: String
+  },
+  to: {
+    type: String
+  },
+  timeStamp: {
+    type: Date,
+    required: true
+  }
+})
 
 const ResultSchema = new Schema<IResult>(
   {
@@ -65,37 +79,41 @@ const ResultSchema = new Schema<IResult>(
   { _id: false }
 );
 
-const GameSchema = new Schema<IGame>(
-  {
-    players: {
-      type: [PlayerSchema],
-      required: true,
-      validate: (v: IPlayer[]) => v.length === 2,
-    },
-
-    initialFen: { type: String, required: true, default: "" },
-    moves: { type: [String], required: true, default: [] },
-    fenHistory: { type: [String], default: [] },
-    pgn: { type: String, required: true, default: "" },
-
-    result: { type: ResultSchema, required: true },
-
-    variant: { type: String, enum: Object.values(GAME_VARIANTS), required: true},
-    timeControl: {
-      time: {
-        type: Number,
-        required: true,
-      },
-      increment: {
-        type: Number,
-        required: true,
-        default: 0,
-      }
-    },
-    startedAt: { type: Date, default: null },
-    endedAt: { type: Date, default: null },
+const GameSchema = new Schema<IGame>({
+  players: {
+    type: [PlayerSchema],
+    required: true,
+    validate: (v: IPlayer[]) => v.length === 2,
   },
-);
+
+  status: {
+    type: String,
+    enum: ["completed", "on-going"],
+    default: "on-going",
+  },
+
+  initialFen: { type: String, required: true, default: "" },
+  moves: { type: [MoveSchema], required: true, default: [] },
+  fenHistory: { type: [String], default: [] },
+  pgn: { type: String, required: true, default: "" },
+
+  result: { type: ResultSchema, required: true },
+
+  variant: { type: String, enum: Object.values(GAME_VARIANTS), required: true },
+  timeControl: {
+    time: {
+      type: Number,
+      required: true,
+    },
+    increment: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+  },
+  startedAt: { type: Date, default: Date.now },
+  endedAt: { type: Date },
+});
 
 GameSchema.index({ "players.userId": 1 });
 GameSchema.index({ endedAt: -1 });
