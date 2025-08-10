@@ -1,30 +1,73 @@
 import redis from "../../config/redis";
-import { TimeControl } from "../../constants";
+import { GAME_TYPE_KEYS, GAME_VARIANTS, TimeControl } from "../../constants";
 import { IMove, IPlayer } from "../../models/game";
 import APIError from "../../utils/APIError";
 
+interface IGameInfo {
+   gameVariant: GAME_VARIANTS,
+   gameType: GAME_TYPE_KEYS,
+   timeControl: TimeControl
+}
+
 interface IGameHash {
-  gameVariant: string;
-  gameType: string;
-  timeControl: TimeControl;
+  gameId: string;
+  wsRoomId: string;
+  //   playerInfo: IPlayerHash,
+  playerInfo: IPlayer;
+  timeLeft: { white: number; black: number };
+  gameInfo: IGameInfo;
+  initialFen: string;
+  moves: IMove[];
+  pgn: string;
+  turn: "white" | "black";
+  startedAt: number;
+  lastMovePlayedAt: number;
 }
 
 interface IPlayerHash extends IPlayer {
   isPlayerConnected: boolean;
 }
 
-export const createGameHash = async (
-  gameId: string,
-  wsRoomId: string,
+//Helper
+
+export const parseRedisHash = (data: Record<string, string>) => {
+  const parsed: Record<string, any> = {};
+  for (const key in data) {
+    try {
+      parsed[key] = JSON.parse(data[key]);
+    } catch {
+      parsed[key] = data[key];
+    }
+  }
+  return parsed;
+};
+
+export const stringifyRedisHash = (data: Record<string, string>) => {
+  const parsed: Record<string, any> = {};
+  for (const key in data) {
+    try {
+      parsed[key] = JSON.stringify(data[key]);
+    } catch {
+      parsed[key] = data[key];
+    }
+  }
+  return parsed;
+};
+
+export const createGameHash = async ({
+  gameId,
+  wsRoomId,
   //   playerInfo: IPlayerHash,
-  playerInfo: IPlayer,
-  timeLeft: { white: number; black: number },
-  gameInfo: IGameHash,
-  initialFen: string = "",
-  moves: IMove[] = [],
-  turn: "white" | "black" = "white",
-  startedAt: number = Date.now()
-) => {
+  playerInfo,
+  timeLeft,
+  gameInfo,
+  initialFen,
+  moves,
+  pgn,
+  turn,
+  startedAt = Date.now(),
+  lastMovePlayedAt = Date.now(),
+}: IGameHash): Promise<void> => {
   await redis.hmset(gameId, {
     wsRoomId,
     playerInfo: JSON.stringify(playerInfo),
@@ -33,8 +76,9 @@ export const createGameHash = async (
     initialFen,
     moves: JSON.stringify(moves),
     turn,
+    pgn,
     startedAt: startedAt.toString(),
-    lastMovePlayedAt: Date.now().toString(),
+    lastMovePlayedAt: lastMovePlayedAt.toString(),
   });
 
   await redis.expire(gameId, 7200);
@@ -78,4 +122,13 @@ export const addMoveToGameHash = async (
     turn: newTurn,
     lastMovePlayedAt: Date.now().toString(),
   });
+};
+
+export const getGameHash = async (gameId: string): Promise<IGameHash> => {
+  const game = await redis.hgetall(gameId);
+  if (!game) {
+    // TODO: trying fetching from DB
+    throw new Error("game not found");
+  }
+  return parseRedisHash(game) as IGameHash;
 };
