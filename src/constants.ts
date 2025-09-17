@@ -1,10 +1,5 @@
-// export enum GameVariant {
-//   BULLET = "bullet",
-//   BLITZ = "blitz",
-//   RAPID = "rapid",
-// }
-
-export type TimeControl = { time: number; increment: number };
+// Import TimeControl from centralized types
+import { TimeControl } from "./types/game";
 
 // export type GameTimeControll = {
 //   [key in GameVariant]: GameTime[];
@@ -84,12 +79,12 @@ export const GAME_TYPES = {
     BULLET_1_1: { time: 60, increment: 1 },
     BULLET_2_1: { time: 120, increment: 1 },
   },
-} as const
+} as const;
 
 export enum GAME_VARIANTS {
   RAPID = "RAPID",
   BLITZ = "BLITZ",
-  BULLET = "BULLET"
+  BULLET = "BULLET",
 }
 
 export type GAME_TYPE_KEYS = {

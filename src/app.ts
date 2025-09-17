@@ -25,7 +25,7 @@ app.use(cors({
 dotenv.config()
 
 app.get('/', (request, response) => {
-  response.send('<h1>hellow<h1>')
+  response.send('<h1>hello<h1>')
 })
 
 

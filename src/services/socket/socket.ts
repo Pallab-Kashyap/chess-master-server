@@ -5,17 +5,18 @@ import { registerGameHandler } from "./gameHandler";
 
 export const setupSockets = () => {
   io.on("connection", async (socket) => {
-    const token = socket.handshake.auth?.token
+    const token = socket.handshake.auth?.token;
 
     try {
-        const payload = verifyToken(token)
-        await updateSocketId(payload.userId, socket.id);
+      const payload = verifyToken(token);
+      await updateSocketId(payload.userId, socket.id);
+
+      // Register game handler with userId
+      registerGameHandler(io, socket, payload.userId);
     } catch (error) {
-
-            socket.disconnect();
+      socket.disconnect();
+      return;
     }
-
-    registerGameHandler(io, socket)
 
     socket.on("ping", () => {
       socket.emit("pong");

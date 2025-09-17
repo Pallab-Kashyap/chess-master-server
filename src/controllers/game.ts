@@ -7,12 +7,18 @@ import {
   getOpponentInRange,
   removePlayerFromQueue,
 } from "../services/redis/matchMakingQueue";
+import { GAME_TYPE_KEYS, GAME_TYPES, GAME_VARIANTS } from "../constants";
 import {
-  GAME_TYPE_KEYS,
-  GAME_TYPES,
-  GAME_VARIANTS,
   TimeControl,
-} from "../constants";
+  PlayerDTO,
+  GameInfoDTO,
+  CreateGameRequest,
+  CreateGameResponse,
+  DEFAULT_FEN,
+  timeControlToMs,
+  gameVariantToRatingKey,
+} from "../types/game";
+import { validateCreateGameRequest } from "../utils/validation";
 import UserProfileModel from "../models/userProfile";
 import GameModel from "../models/game";
 import { createPlayerHash, getPlayerHash } from "../services/redis/playerHash";
@@ -23,7 +29,7 @@ import APIResponse from "../utils/APIResponse";
 export const getValidTimeControl = (
   variant: string,
   type: string
-): { time: number; increment: number } => {
+): TimeControl => {
   if (!Object.keys(GAME_TYPES).includes(variant)) {
     throw new Error("Invalid variant");
   }
@@ -38,24 +44,29 @@ export const getValidTimeControl = (
 
 export const createGame = asyncWrapper(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { gameVariant, gameType } = req.body;
-
-    if (!gameType || gameType.length === 0) {
-      throw APIError.badRequest("gameType is an required field");
+    if (!req.user || !req.user.userId) {
+      throw APIError.badRequest("UserId missing");
     }
 
-    const timeControl = getValidTimeControl(
-      gameVariant,
-      gameType
-    ) as TimeControl;
+    // Validate request body
+    const { gameVariant, gameType } = validateCreateGameRequest(req.body);
+
+    const timeControl = getValidTimeControl(gameVariant, gameType);
 
     const userProfile = await UserProfileModel.findOne({
       userId: req.user?.userId,
     }).select(`rating`);
 
-    const ratingValue = userProfile?.rating?.[gameVariant.toLowerCase()];
+    if (!userProfile) {
+      throw APIError.internal("User profile not found");
+    }
 
-    if (typeof ratingValue !== "number") {
+    const ratingKey = gameVariantToRatingKey(
+      gameVariant
+    ) as keyof typeof userProfile.rating;
+    const ratingValue = userProfile?.rating?.[ratingKey];
+
+    if (!ratingValue || typeof ratingValue !== "number") {
       throw APIError.internal("User rating not found or invalid");
     }
 
@@ -67,32 +78,37 @@ export const createGame = asyncWrapper(
 
     if (!opponents) {
       await addPlayerToQueue(gameType, req.user?.userId!, ratingValue);
-      await createPlayerHash(req.user?.userId!, 'wsId', ratingValue)
-      const token = generateToken({userId: req.user?.userId!})
-      return APIResponse.success(res, "Searching for opponent", { wsToken: token })
+      await createPlayerHash(req.user?.userId!, "wsId", ratingValue);
+      const token = generateToken({ userId: req.user?.userId! });
+      return APIResponse.success(res, "Searching for opponent", {
+        wsToken: token,
+      });
     } else {
       for (const opponent in opponents) {
-        const playerDetails = await getPlayerHash(opponent);
-        if (!playerDetails) {
+        const opponentDetails = await getPlayerHash(opponent);
+        if (!opponentDetails) {
           await removePlayerFromQueue(gameType, opponent);
         } else {
           if (!checkPlayerAvialabilityForGame(gameType, opponent)) {
             await removePlayerFromQueue(gameType, opponent);
             continue;
           }
+
+          const playerInfo: PlayerDTO[] = [
+            {
+              userId: req.user?.userId!,
+              color: "white",
+              preRating: ratingValue,
+            },
+            {
+              userId: opponent,
+              color: "black",
+              preRating: opponentDetails.rating,
+            },
+          ];
+
           const game = await GameModel.create({
-            players: [
-              {
-                userId: req.user?.userId,
-                color: "white",
-                preRating: ratingValue,
-              },
-              {
-                userId: opponent,
-                color: "black",
-                preRating: playerDetails.rating,
-              },
-            ],
+            players: playerInfo,
             variant: gameVariant,
             timeControl,
           });
@@ -101,11 +117,51 @@ export const createGame = asyncWrapper(
             throw APIError.internal("Failed to create game");
           }
 
-          await createGameHash(game._id);
+          const gameTimeLeft = timeControlToMs(timeControl);
 
-          break;
+          await createGameHash({
+            gameId: game.id,
+            playerInfo,
+            timeLeft: gameTimeLeft,
+            gameInfo: {
+              gameVariant: gameVariant,
+              gameType: gameType,
+              timeControl,
+            },
+            initialFen: DEFAULT_FEN,
+            moves: [],
+            pgn: "",
+            turn: "white",
+            startedAt: Date.now(),
+            lastMovePlayedAt: Date.now(),
+          });
+
+          // Remove both players from the queue
+          await removePlayerFromQueue(gameType, req.user?.userId!);
+          await removePlayerFromQueue(gameType, opponent);
+
+          const response: CreateGameResponse = {
+            gameId: game.id,
+            message: "Game created successfully",
+          };
+
+          return APIResponse.success(
+            res,
+            "Game created successfully",
+            response
+          );
         }
       }
+
+      // If we reach here, no suitable opponent was found after checking all
+      await addPlayerToQueue(gameType, req.user?.userId!, ratingValue);
+      await createPlayerHash(req.user?.userId!, "wsId", ratingValue);
+      const token = generateToken({ userId: req.user?.userId! });
+      return APIResponse.success(
+        res,
+        "No suitable opponent found, added to queue",
+        { wsToken: token }
+      );
     }
   }
 );
