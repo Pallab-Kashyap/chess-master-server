@@ -1,4 +1,5 @@
 import jwt, { JwtPayload, SignOptions } from "jsonwebtoken";
+import { UserPayload } from "../types/express";
 
 export const generateToken = (
   playload: any,
@@ -11,10 +12,9 @@ export const generateToken = (
   }
 
   return jwt.sign(playload, secret, { expiresIn });
-
 };
 
-export const verifyToken = (token: string): JwtPayload => {
+export const verifyToken = (token: string): UserPayload => {
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {
@@ -26,6 +26,10 @@ export const verifyToken = (token: string): JwtPayload => {
     throw new Error("Invalid token payload");
   }
 
-  return decoded;
+  // Ensure the decoded token has the expected userId property
+  if (!decoded || typeof decoded !== "object" || !("userId" in decoded)) {
+    throw new Error("Invalid token: missing userId");
+  }
 
+  return decoded as UserPayload;
 };

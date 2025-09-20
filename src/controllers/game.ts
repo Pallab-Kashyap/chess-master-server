@@ -1,30 +1,25 @@
 import { NextFunction, Request, Response } from "express";
 import asyncWrapper from "../utils/asyncWrapper";
 import APIError from "../utils/APIError";
-import {
-  addPlayerToQueue,
-  checkPlayerAvialabilityForGame,
-  getOpponentInRange,
-  removePlayerFromQueue,
-} from "../services/redis/matchMakingQueue";
 import { GAME_TYPE_KEYS, GAME_TYPES, GAME_VARIANTS } from "../constants";
 import {
   TimeControl,
-  PlayerDTO,
-  GameInfoDTO,
   CreateGameRequest,
   CreateGameResponse,
+  gameVariantToRatingKey,
+  PlayerDTO,
+  GameInfoDTO,
   DEFAULT_FEN,
   timeControlToMs,
-  gameVariantToRatingKey,
 } from "../types/game";
 import { validateCreateGameRequest } from "../utils/validation";
 import UserProfileModel from "../models/userProfile";
 import GameModel from "../models/game";
-import { createPlayerHash, getPlayerHash } from "../services/redis/playerHash";
+import { createPlayerHash } from "../services/redis/playerHash";
 import { createGameHash } from "../services/redis/gameHash";
 import { generateToken } from "../utils/generateToken";
 import APIResponse from "../utils/APIResponse";
+import { DynamicMatchMaking } from "../services/matchmaking/DynamicMatchMaking";
 
 export const getValidTimeControl = (
   variant: string,
@@ -70,98 +65,106 @@ export const createGame = asyncWrapper(
       throw APIError.internal("User rating not found or invalid");
     }
 
-    const opponents = await getOpponentInRange(
+    // Create player hash for WebSocket connection tracking
+    await createPlayerHash(req.user?.userId!, "wsId", ratingValue);
+
+    // Generate WebSocket token
+    const token = generateToken({ userId: req.user?.userId! });
+
+    // Start dynamic matchmaking search
+    // Note: The actual search will be handled via WebSocket events
+    // This endpoint just sets up the initial state and returns the token
+
+    return APIResponse.success(res, "Ready to start matchmaking", {
+      wsToken: token,
+      gameType: gameType,
+      gameVariant: gameVariant,
+      userRating: ratingValue,
+      instructions:
+        "Connect to WebSocket and use 'search_match' event to start searching",
+    });
+  }
+);
+
+export const startDynamicMatchmaking = asyncWrapper(
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || !req.user.userId) {
+      throw APIError.badRequest("UserId missing");
+    }
+
+    // Validate request body
+    const { gameVariant, gameType, socketId } = req.body;
+
+    if (!socketId) {
+      throw APIError.badRequest("Socket ID is required to start matchmaking");
+    }
+
+    const timeControl = getValidTimeControl(gameVariant, gameType);
+
+    const userProfile = await UserProfileModel.findOne({
+      userId: req.user?.userId,
+    }).select(`rating`);
+
+    if (!userProfile) {
+      throw APIError.internal("User profile not found");
+    }
+
+    const ratingKey = gameVariantToRatingKey(
+      gameVariant
+    ) as keyof typeof userProfile.rating;
+    const ratingValue = userProfile?.rating?.[ratingKey];
+
+    if (!ratingValue || typeof ratingValue !== "number") {
+      throw APIError.internal("User rating not found or invalid");
+    }
+
+    // Start the dynamic matchmaking search
+    await DynamicMatchMaking.startSearch(
+      req.user.userId,
       gameType,
-      ratingValue - 60,
-      ratingValue + 60
+      gameVariant,
+      timeControl,
+      ratingValue,
+      socketId
     );
 
-    if (!opponents) {
-      await addPlayerToQueue(gameType, req.user?.userId!, ratingValue);
-      await createPlayerHash(req.user?.userId!, "wsId", ratingValue);
-      const token = generateToken({ userId: req.user?.userId! });
-      return APIResponse.success(res, "Searching for opponent", {
-        wsToken: token,
-      });
-    } else {
-      for (const opponent in opponents) {
-        const opponentDetails = await getPlayerHash(opponent);
-        if (!opponentDetails) {
-          await removePlayerFromQueue(gameType, opponent);
-        } else {
-          if (!checkPlayerAvialabilityForGame(gameType, opponent)) {
-            await removePlayerFromQueue(gameType, opponent);
-            continue;
-          }
+    return APIResponse.success(res, "Dynamic matchmaking started", {
+      gameType,
+      gameVariant,
+      userRating: ratingValue,
+      initialRange: 60,
+      message: "Send 'search_match' events every 3 seconds via WebSocket",
+    });
+  }
+);
 
-          const playerInfo: PlayerDTO[] = [
-            {
-              userId: req.user?.userId!,
-              color: "white",
-              preRating: ratingValue,
-            },
-            {
-              userId: opponent,
-              color: "black",
-              preRating: opponentDetails.rating,
-            },
-          ];
+export const getGameRatingChanges = asyncWrapper(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { gameId } = req.params;
 
-          const game = await GameModel.create({
-            players: playerInfo,
-            variant: gameVariant,
-            timeControl,
-          });
-
-          if (!game) {
-            throw APIError.internal("Failed to create game");
-          }
-
-          const gameTimeLeft = timeControlToMs(timeControl);
-
-          await createGameHash({
-            gameId: game.id,
-            playerInfo,
-            timeLeft: gameTimeLeft,
-            gameInfo: {
-              gameVariant: gameVariant,
-              gameType: gameType,
-              timeControl,
-            },
-            initialFen: DEFAULT_FEN,
-            moves: [],
-            pgn: "",
-            turn: "white",
-            startedAt: Date.now(),
-            lastMovePlayedAt: Date.now(),
-          });
-
-          // Remove both players from the queue
-          await removePlayerFromQueue(gameType, req.user?.userId!);
-          await removePlayerFromQueue(gameType, opponent);
-
-          const response: CreateGameResponse = {
-            gameId: game.id,
-            message: "Game created successfully",
-          };
-
-          return APIResponse.success(
-            res,
-            "Game created successfully",
-            response
-          );
-        }
-      }
-
-      // If we reach here, no suitable opponent was found after checking all
-      await addPlayerToQueue(gameType, req.user?.userId!, ratingValue);
-      await createPlayerHash(req.user?.userId!, "wsId", ratingValue);
-      const token = generateToken({ userId: req.user?.userId! });
-      return APIResponse.success(
-        res,
-        "No suitable opponent found, added to queue",
-        { wsToken: token }
-      );
+    if (!gameId) {
+      throw APIError.badRequest("Game ID is required");
     }
+
+    const game = await GameModel.findById(gameId).select(
+      "ratingChanges players"
+    );
+    if (!game) {
+      throw APIError.notFound("Game not found");
+    }
+
+    if (!game.ratingChanges) {
+      throw APIError.notFound("Rating changes not available for this game");
+    }
+
+    return APIResponse.success(res, "Game rating changes retrieved", {
+      gameId,
+      ratingChanges: game.ratingChanges,
+      players: game.players.map((p) => ({
+        userId: p.userId,
+        color: p.color,
+        currentRating: p.preRating,
+      })),
+    });
   }
 );

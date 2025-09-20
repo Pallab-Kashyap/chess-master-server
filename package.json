@@ -24,7 +24,9 @@
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.15",
+    "axios": "^1.12.2",
     "nodemon": "^3.1.10",
+    "socket.io-client": "^4.8.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"

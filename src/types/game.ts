@@ -55,6 +55,12 @@ export interface GameHashDTO {
   turn: PlayerColor;
   startedAt: number; // unix timestamp
   lastMovePlayedAt: number; // unix timestamp
+  // Game ending properties
+  gameOver?: boolean;
+  winner?: Winner;
+  result?: GameResult;
+  endReason?: string;
+  endedAt?: number; // unix timestamp
 }
 
 export interface PlayerHashDTO {

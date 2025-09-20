@@ -42,6 +42,24 @@ export interface IGame extends Document {
   timeControl: TimeControl;
   startedAt?: Date;
   endedAt?: Date;
+  ratingChanges?: {
+    whitePlayer: {
+      userId: string;
+      currentRating: number;
+      onWin: number;
+      onLoss: number;
+      onDraw: number;
+      isProvisional: boolean;
+    };
+    blackPlayer: {
+      userId: string;
+      currentRating: number;
+      onWin: number;
+      onLoss: number;
+      onDraw: number;
+      isProvisional: boolean;
+    };
+  };
 }
 
 const PlayerSchema = new Schema<IPlayer>(
@@ -152,7 +170,7 @@ const GameSchema = new Schema<IGame>(
 
     pgn: {
       type: String,
-      required: true,
+      required: false,
       default: "",
     },
 
@@ -188,6 +206,28 @@ const GameSchema = new Schema<IGame>(
 
     endedAt: {
       type: Date,
+    },
+
+    ratingChanges: {
+      type: {
+        whitePlayer: {
+          userId: String,
+          currentRating: Number,
+          onWin: Number,
+          onLoss: Number,
+          onDraw: Number,
+          isProvisional: Boolean,
+        },
+        blackPlayer: {
+          userId: String,
+          currentRating: Number,
+          onWin: Number,
+          onLoss: Number,
+          onDraw: Number,
+          isProvisional: Boolean,
+        },
+      },
+      required: false,
     },
   },
   {

@@ -4,6 +4,21 @@ node_modules
 
 dist
 
+# Documentation files
+*.md
 MODEL_IMPROVEMENTS.md
 TYPE_IMPROVEMENTS.md
 TYPESCRIPT_MODULE_RESOLUTION_FIX.md
+TIME_MANAGEMENT_DOCS.md
+FRONTEND_INTEGRATION_DOCS.md
+COMPREHENSIVE_BACKEND_DOCUMENTATION.md
+
+# Test files
+test-*.js
+test-*.ts
+debug-*.js
+**/test/**
+**/*.test.js
+**/*.test.ts
+**/*.spec.js
+**/*.spec.ts

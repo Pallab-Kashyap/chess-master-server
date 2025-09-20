@@ -115,5 +115,16 @@
       "module": "commonjs",
       "moduleResolution": "node"
     }
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test-*.ts",
+    "test-*.js",
+    "debug-*.js",
+    "**/*.test.ts",
+    "**/*.test.js",
+    "**/*.spec.ts",
+    "**/*.spec.js"
+  ]
 }

@@ -40,6 +40,9 @@ export const enum SOCKET_MESSAGE_TYPE {
   OFFER_REMATCH = "offer_rematch",
   ACCEPT_REMATCH = "accept_rematch",
   OPPONENT_RECONNECTING = "opponent_reconnecting",
+  TIME_UPDATE = "time_update",
+  TIME_UP = "time_up",
+  REQUEST_TIME_SYNC = "request_time_sync",
 }
 
 export const enum PLAYER_COLOR {

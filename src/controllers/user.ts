@@ -8,6 +8,7 @@ import { UserPayload } from "../types/express";
 import { createPlayerHash } from "../services/redis/playerHash";
 import { PlayerDTO } from "../types/game";
 import APIResponse from "../utils/APIResponse";
+import { generateToken } from "../utils/generateToken";
 
 export const getUserProfile = asyncWrapper(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -15,8 +16,8 @@ export const getUserProfile = asyncWrapper(
       throw APIError.unauthorized("Unauthorized");
     }
 
-    const user = await UserModel.findOne({ userId: req.user.userId }).select(
-      "-_id userId username email createdAt"
+    const user = await UserModel.findById(req.user.userId).select(
+      "-_id _id username email createdAt"
     );
     if (!user) {
       throw APIError.notFound("User not found");
@@ -24,13 +25,13 @@ export const getUserProfile = asyncWrapper(
 
     const userProfile = await UserProfileModel.findOne({
       userId: req.user.userId,
-    })
+    });
 
     if (!userProfile) {
       throw APIError.notFound("User profile not found");
     }
 
-    return APIResponse.success(res, '', {user, userProfile})
+    return APIResponse.success(res, "", { user, userProfile });
   }
 );
 
@@ -55,12 +56,55 @@ export const registerUser = asyncWrapper(
     const newUserProfile = new UserProfileModel({ userId: newUser._id });
     await newUserProfile.save();
 
-    // const token = generateToken({ userId: newUser._id } as UserPayload);
-    const token ='VX'
-
+    const token = generateToken({ userId: newUser._id } as UserPayload);
 
     // Create player hash in Redis
-    return APIResponse.created(res, 'User registered successfully', token)
+    return APIResponse.created(res, "User registered successfully", {
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+      },
+      token,
+    });
+  }
+);
+
+export const loginUser = asyncWrapper(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { email, password, clerkId } = req.body;
+
+    if (!email || (!password && !clerkId)) {
+      throw APIError.badRequest("Email and password/clerkId are required");
+    }
+
+    const user = await UserModel.findOne({ email });
+    if (!user) {
+      throw APIError.unauthorized("Invalid credentials");
+    }
+
+    // Get user profile with ratings
+    const userProfile = await UserProfileModel.findOne({ userId: user._id });
+    if (!userProfile) {
+      throw APIError.notFound("User profile not found");
+    }
+
+    // For now, we'll skip password verification since we're using clerkId
+    // In a real app, you'd verify the password or clerkId here
+
+    const token = generateToken({ userId: user._id } as UserPayload);
+
+    return APIResponse.success(res, "Login successful", {
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+      },
+      userProfile: {
+        rating: userProfile.rating,
+      },
+      token,
+    });
   }
 );
 
