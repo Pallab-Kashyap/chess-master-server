@@ -34,6 +34,10 @@ class APIError extends Error {
     return new APIError(404, message);
   }
 
+  static conflict(message: string) {
+    return new APIError(409, message);
+  }
+
   static internal(message: string) {
     return new APIError(500, message);
   }

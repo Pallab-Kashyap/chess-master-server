@@ -94,8 +94,8 @@ UserProfileSchema.virtual("winRate").get(function (this: IUserProfile) {
   return ((this.wins || 0) / (this.totalGames || 1)) * 100;
 });
 
-// Add index for better query performance
-UserProfileSchema.index({ userId: 1 });
+// Index is already created by the field definition above (index: true)
+// UserProfileSchema.index({ userId: 1 }); // Removed duplicate index
 
 const UserProfileModel = mongoose.model<IUserProfile>(
   "UserProfile",

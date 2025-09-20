@@ -11,6 +11,7 @@ export const generateToken = (
   }
 
   return jwt.sign(playload, secret, { expiresIn });
+
 };
 
 export const verifyToken = (token: string): JwtPayload => {
@@ -26,4 +27,5 @@ export const verifyToken = (token: string): JwtPayload => {
   }
 
   return decoded;
+
 };
