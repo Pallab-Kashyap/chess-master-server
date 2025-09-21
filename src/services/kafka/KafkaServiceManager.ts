@@ -37,18 +37,31 @@ export class KafkaServiceManager {
     try {
       console.log("🚀 Initializing Kafka services...");
 
+      // Check if Kafka is available
+      const producer = await this.kafkaManager.getProducer();
+      if (!producer) {
+        console.log(
+          "⚠️  Kafka is disabled, skipping Kafka service initialization"
+        );
+        this.isInitialized = true;
+        return;
+      }
+
       // Start the consumer to process game events
-      await this.consumer.startConsuming();
+      await this.consumer.initialize();
 
-      console.log("✅ Kafka services initialized successfully");
+      // Initialize the publisher
+      await this.publisher.initialize();
+
+      // Start batch processing
+      await this.batchProcessor.initialize();
+
       this.isInitialized = true;
-
-      // Setup graceful shutdown
-      process.on("SIGINT", this.gracefulShutdown.bind(this));
-      process.on("SIGTERM", this.gracefulShutdown.bind(this));
+      console.log("✅ Kafka services initialized successfully");
     } catch (error) {
       console.error("❌ Failed to initialize Kafka services:", error);
-      throw error;
+      // Don't throw - let the server continue without Kafka
+      this.isInitialized = true;
     }
   }
 

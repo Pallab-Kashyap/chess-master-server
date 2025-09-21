@@ -22,6 +22,15 @@ export class GameEventBatchProcessor {
   }
 
   /**
+   * Initialize the batch processor
+   */
+  async initialize(): Promise<void> {
+    // Initialize the publisher
+    await this.publisher.initialize();
+    console.log("📦 Kafka batch processor initialized");
+  }
+
+  /**
    * Add event to batch for processing
    */
   async addEvent(

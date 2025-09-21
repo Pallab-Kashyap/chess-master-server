@@ -5,6 +5,7 @@ export class KafkaManager {
   private producer: Producer | null = null;
   private consumer: Consumer | null = null;
   private static instance: KafkaManager;
+  private isEnabled: boolean = true;
 
   private constructor() {
     const kafkaConfig: KafkaConfig = {
@@ -24,31 +25,57 @@ export class KafkaManager {
     return KafkaManager.instance;
   }
 
-  public async getProducer(): Promise<Producer> {
+  public async getProducer(): Promise<Producer | null> {
+    if (!this.isEnabled) return null;
+
     if (!this.producer) {
-      this.producer = this.kafka.producer({
-        maxInFlightRequests: 1,
-        idempotent: true,
-        transactionTimeout: 30000,
-      });
-      await this.producer.connect();
-      console.log("📨 Kafka Producer connected");
+      try {
+        this.producer = this.kafka.producer({
+          maxInFlightRequests: 1,
+          idempotent: true,
+          transactionTimeout: 30000,
+        });
+        await this.producer.connect();
+        console.log("📨 Kafka Producer connected");
+      } catch (error) {
+        console.warn(
+          "⚠️  Kafka Producer connection failed, disabling Kafka:",
+          (error as Error).message
+        );
+        this.isEnabled = false;
+        return null;
+      }
     }
     return this.producer;
   }
 
-  public async getConsumer(groupId: string): Promise<Consumer> {
+  public async getConsumer(groupId: string): Promise<Consumer | null> {
+    if (!this.isEnabled) return null;
+
     if (!this.consumer) {
-      this.consumer = this.kafka.consumer({
-        groupId,
-        sessionTimeout: 30000,
-        heartbeatInterval: 3000,
-        maxWaitTimeInMs: 100,
-      });
-      await this.consumer.connect();
-      console.log(`📥 Kafka Consumer connected with groupId: ${groupId}`);
+      try {
+        this.consumer = this.kafka.consumer({
+          groupId,
+          sessionTimeout: 30000,
+          heartbeatInterval: 3000,
+          maxWaitTimeInMs: 100,
+        });
+        await this.consumer.connect();
+        console.log(`📥 Kafka Consumer connected with groupId: ${groupId}`);
+      } catch (error) {
+        console.warn(
+          "⚠️  Kafka Consumer connection failed, disabling Kafka:",
+          (error as Error).message
+        );
+        this.isEnabled = false;
+        return null;
+      }
     }
     return this.consumer;
+  }
+
+  public isKafkaEnabled(): boolean {
+    return this.isEnabled;
   }
 
   public async disconnect(): Promise<void> {

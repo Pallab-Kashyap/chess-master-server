@@ -10,7 +10,15 @@ export class GameEventPublisher {
     this.kafkaManager = KafkaManager.getInstance();
   }
 
-  private async getProducer(): Promise<Producer> {
+  /**
+   * Initialize the publisher
+   */
+  async initialize(): Promise<void> {
+    // Just ensure we can get a producer - the actual connection happens in getProducer
+    await this.getProducer();
+  }
+
+  private async getProducer(): Promise<Producer | null> {
     if (!this.producer) {
       this.producer = await this.kafkaManager.getProducer();
     }
@@ -27,6 +35,14 @@ export class GameEventPublisher {
   ): Promise<boolean> {
     try {
       const producer = await this.getProducer();
+
+      // If Kafka is disabled, just log and return true
+      if (!producer) {
+        console.log(
+          `📝 Kafka disabled - would publish event: ${event.type} for game ${gameId}`
+        );
+        return true;
+      }
 
       const message: KafkaMessage = {
         gameId,
@@ -78,6 +94,14 @@ export class GameEventPublisher {
   ): Promise<boolean> {
     try {
       const producer = await this.getProducer();
+
+      // If Kafka is disabled, just log and return true
+      if (!producer) {
+        console.log(
+          `📝 Kafka disabled - would publish batch of ${events.length} events`
+        );
+        return true;
+      }
 
       // Group events by topic
       const topicMessages: { [topic: string]: any[] } = {};

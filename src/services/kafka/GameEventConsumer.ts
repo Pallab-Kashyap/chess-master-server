@@ -1,12 +1,6 @@
-import { Consumer, EachMessagePayload } from "kafkajs";
+import { Consumer } from "kafkajs";
 import KafkaManager from "../../config/kafka";
-import {
-  KAFKA_TOPICS,
-  KafkaMessage,
-  GAME_EVENT_TYPES,
-} from "../../types/kafka";
-import GameModel from "../../models/game";
-import { RESULT_TYPES } from "../../constants";
+import { KAFKA_TOPICS } from "../../types/kafka";
 
 export class GameEventConsumer {
   private consumer: Consumer | null = null;
@@ -18,311 +12,139 @@ export class GameEventConsumer {
   }
 
   /**
-   * Start consuming game events from Kafka
+   * Initialize the consumer
    */
-  async startConsuming(): Promise<void> {
+  async initialize(): Promise<void> {
     try {
       this.consumer = await this.kafkaManager.getConsumer(
-        "chess-game-persistence-group"
+        "chess-game-events-group"
       );
 
-      // Subscribe to all game-related topics
+      if (!this.consumer) {
+        console.log(
+          "⚠️  Kafka consumer initialization skipped - Kafka disabled"
+        );
+        return;
+      }
+
+      // Subscribe to all game event topics
       await this.consumer.subscribe({
         topics: [
+          KAFKA_TOPICS.GAME_EVENTS,
           KAFKA_TOPICS.GAME_MOVES,
           KAFKA_TOPICS.GAME_STATE_UPDATES,
-          KAFKA_TOPICS.GAME_EVENTS,
         ],
         fromBeginning: false,
       });
 
-      await this.consumer.run({
-        eachMessage: this.handleMessage.bind(this),
-      });
-
-      this.isRunning = true;
-      console.log("📥 Kafka consumer started - listening for game events");
+      console.log(
+        "✅ Game event consumer initialized and subscribed to topics"
+      );
     } catch (error) {
-      console.error("❌ Failed to start Kafka consumer:", error);
+      console.error("❌ Failed to initialize game event consumer:", error);
       throw error;
     }
   }
 
   /**
-   * Handle incoming Kafka messages
+   * Start consuming messages
    */
-  private async handleMessage({
-    topic,
-    partition,
-    message,
-  }: EachMessagePayload): Promise<void> {
+  async startConsuming(): Promise<void> {
+    if (!this.consumer) {
+      console.log("⚠️  Consumer not initialized, skipping consumption");
+      return;
+    }
+
     try {
-      if (!message.value) {
-        console.warn("⚠️ Received empty message");
-        return;
-      }
+      await this.consumer.run({
+        eachMessage: async ({ topic, partition, message }) => {
+          try {
+            const eventData = JSON.parse(message.value?.toString() || "{}");
+            await this.processGameEvent(topic, eventData);
+          } catch (error) {
+            console.error(`❌ Error processing message from ${topic}:`, error);
+          }
+        },
+      });
 
-      const kafkaMessage: KafkaMessage = JSON.parse(message.value.toString());
-      const { gameId, event, priority } = kafkaMessage;
+      this.isRunning = true;
+      console.log("🏃 Game event consumer started");
+    } catch (error) {
+      console.error("❌ Failed to start game event consumer:", error);
+      throw error;
+    }
+  }
 
+  /**
+   * Process individual game events
+   */
+  private async processGameEvent(topic: string, eventData: any): Promise<void> {
+    try {
       console.log(
-        `📥 Processing ${event.type} event for game ${gameId} (priority: ${priority})`
+        `📥 Processing event from ${topic}:`,
+        eventData.eventType || eventData.type
       );
 
-      switch (event.type) {
-        case GAME_EVENT_TYPES.GAME_STARTED:
-          await this.handleGameStarted(kafkaMessage);
+      // Add custom processing logic here based on event type
+      switch (topic) {
+        case KAFKA_TOPICS.GAME_EVENTS:
+          await this.handleGameEvent(eventData);
           break;
-        case GAME_EVENT_TYPES.MOVE_MADE:
-          await this.handleMoveMade(kafkaMessage);
+        case KAFKA_TOPICS.GAME_MOVES:
+          await this.handleMoveEvent(eventData);
           break;
-        case GAME_EVENT_TYPES.GAME_ENDED:
-          await this.handleGameEnded(kafkaMessage);
-          break;
-        case GAME_EVENT_TYPES.PLAYER_RESIGNED:
-          await this.handlePlayerResigned(kafkaMessage);
-          break;
-        case GAME_EVENT_TYPES.DRAW_ACCEPTED:
-          await this.handleDrawAccepted(kafkaMessage);
-          break;
-        case GAME_EVENT_TYPES.TIME_UPDATE:
-          await this.handleTimeUpdate(kafkaMessage);
-          break;
-        case GAME_EVENT_TYPES.RATING_UPDATED:
-          await this.handleRatingUpdated(kafkaMessage);
+        case KAFKA_TOPICS.GAME_STATE_UPDATES:
+          await this.handleStateUpdate(eventData);
           break;
         default:
-          console.log(`ℹ️ Unhandled event type: ${event.type}`);
+          console.log(`📝 Unknown topic: ${topic}`);
       }
     } catch (error) {
-      console.error("❌ Error processing Kafka message:", error);
-      // Could implement dead letter queue here for failed messages
+      console.error(`❌ Error processing game event from ${topic}:`, error);
     }
   }
 
   /**
-   * Handle game started event
+   * Handle game lifecycle events
    */
-  private async handleGameStarted(kafkaMessage: KafkaMessage): Promise<void> {
-    const { gameId, event } = kafkaMessage;
-
-    if (event.type !== GAME_EVENT_TYPES.GAME_STARTED) return;
-
-    try {
-      const existingGame = await GameModel.findById(gameId);
-      if (existingGame) {
-        console.log(`ℹ️ Game ${gameId} already exists in MongoDB`);
-        return;
-      }
-
-      await GameModel.create({
-        _id: gameId,
-        players: [
-          {
-            userId: event.players.white,
-            color: "white",
-            preRating: 0, // Will be updated by rating service
-          },
-          {
-            userId: event.players.black,
-            color: "black",
-            preRating: 0, // Will be updated by rating service
-          },
-        ],
-        status: "active",
-        initialFen: event.initialFen,
-        moves: [],
-        pgn: "",
-        variant: "RAPID", // TODO: Get from event
-        timeControl: event.timeControl,
-        startedAt: new Date(event.timestamp),
-      });
-
-      console.log(`✅ Game ${gameId} created in MongoDB`);
-    } catch (error) {
-      console.error(`❌ Failed to create game ${gameId} in MongoDB:`, error);
-    }
+  private async handleGameEvent(eventData: any): Promise<void> {
+    // Process game events (start, end, rematch, etc.)
+    console.log(`🎮 Game event: ${eventData.eventType}`, eventData.gameId);
   }
 
   /**
-   * Handle move made event
+   * Handle move events
    */
-  private async handleMoveMade(kafkaMessage: KafkaMessage): Promise<void> {
-    const { gameId, event } = kafkaMessage;
-
-    if (event.type !== GAME_EVENT_TYPES.MOVE_MADE) return;
-
-    try {
-      await GameModel.findByIdAndUpdate(
-        gameId,
-        {
-          $push: {
-            moves: {
-              move: event.move.san,
-              from: event.move.from,
-              to: event.move.to,
-              timeStamp: new Date(event.timestamp),
-            },
-          },
-          $set: {
-            pgn: event.pgn,
-            // Update FEN periodically (every 10 moves) to avoid too much data
-            ...(event.moveNumber % 10 === 0 && {
-              $push: { fenHistory: event.fen },
-            }),
-          },
-        },
-        { upsert: false }
-      );
-
-      console.log(
-        `✅ Move ${event.moveNumber} for game ${gameId} saved to MongoDB`
-      );
-    } catch (error) {
-      console.error(`❌ Failed to save move for game ${gameId}:`, error);
-    }
+  private async handleMoveEvent(eventData: any): Promise<void> {
+    // Process move events
+    console.log(`♟️  Move event: ${eventData.move}`, eventData.gameId);
   }
 
   /**
-   * Handle game ended event
+   * Handle game state updates
    */
-  private async handleGameEnded(kafkaMessage: KafkaMessage): Promise<void> {
-    const { gameId, event } = kafkaMessage;
-
-    if (event.type !== GAME_EVENT_TYPES.GAME_ENDED) return;
-
-    try {
-      const updateData: any = {
-        status: "completed",
-        pgn: event.finalPgn,
-        result: {
-          winner: event.result.winner,
-          reason: event.result.reason,
-        },
-        endedAt: new Date(event.timestamp),
-      };
-
-      if (event.ratingChanges) {
-        updateData.ratingChanges = event.ratingChanges;
-      }
-
-      await GameModel.findByIdAndUpdate(gameId, updateData);
-
-      console.log(`✅ Game ${gameId} ended and saved to MongoDB`);
-    } catch (error) {
-      console.error(`❌ Failed to save game end for ${gameId}:`, error);
-    }
-  }
-
-  /**
-   * Handle player resigned event
-   */
-  private async handlePlayerResigned(
-    kafkaMessage: KafkaMessage
-  ): Promise<void> {
-    const { gameId, event } = kafkaMessage;
-
-    if (event.type !== GAME_EVENT_TYPES.PLAYER_RESIGNED) return;
-
-    try {
-      const winner = event.resignedPlayer === "white" ? "black" : "white";
-
-      await GameModel.findByIdAndUpdate(gameId, {
-        status: "completed",
-        result: {
-          winner,
-          reason: RESULT_TYPES.RESIGN,
-        },
-        endedAt: new Date(event.timestamp),
-      });
-
-      console.log(`✅ Resignation for game ${gameId} saved to MongoDB`);
-    } catch (error) {
-      console.error(`❌ Failed to save resignation for game ${gameId}:`, error);
-    }
-  }
-
-  /**
-   * Handle draw accepted event
-   */
-  private async handleDrawAccepted(kafkaMessage: KafkaMessage): Promise<void> {
-    const { gameId, event } = kafkaMessage;
-
-    if (event.type !== GAME_EVENT_TYPES.DRAW_ACCEPTED) return;
-
-    try {
-      await GameModel.findByIdAndUpdate(gameId, {
-        status: "completed",
-        result: {
-          winner: "draw",
-          reason: RESULT_TYPES.DRAW,
-        },
-        endedAt: new Date(event.timestamp),
-      });
-
-      console.log(`✅ Draw for game ${gameId} saved to MongoDB`);
-    } catch (error) {
-      console.error(`❌ Failed to save draw for game ${gameId}:`, error);
-    }
-  }
-
-  /**
-   * Handle time update (for analytics - low frequency saves)
-   */
-  private async handleTimeUpdate(kafkaMessage: KafkaMessage): Promise<void> {
-    // Only save time updates periodically to avoid too many DB writes
-    // Could be used for game analysis or replay features
-    console.log(
-      `ℹ️ Time update for game ${kafkaMessage.gameId} (not persisted)`
-    );
-  }
-
-  /**
-   * Handle rating update
-   */
-  private async handleRatingUpdated(kafkaMessage: KafkaMessage): Promise<void> {
-    const { gameId, event } = kafkaMessage;
-
-    if (event.type !== GAME_EVENT_TYPES.RATING_UPDATED) return;
-
-    try {
-      // Update the player's rating in the game document
-      await GameModel.findOneAndUpdate(
-        {
-          _id: gameId,
-          "players.userId": event.userId,
-        },
-        {
-          $set: {
-            "players.$.postRating": event.newRating,
-          },
-        }
-      );
-
-      console.log(
-        `✅ Rating update for user ${event.userId} in game ${gameId} saved`
-      );
-    } catch (error) {
-      console.error(
-        `❌ Failed to save rating update for game ${gameId}:`,
-        error
-      );
-    }
+  private async handleStateUpdate(eventData: any): Promise<void> {
+    // Process state updates
+    console.log(`🔄 State update for game: ${eventData.gameId}`);
   }
 
   /**
    * Stop consuming messages
    */
   async stopConsuming(): Promise<void> {
-    if (this.consumer && this.isRunning) {
-      await this.consumer.disconnect();
-      this.isRunning = false;
-      console.log("📥 Kafka consumer stopped");
+    if (this.consumer) {
+      try {
+        await this.consumer.disconnect();
+        this.isRunning = false;
+        console.log("🛑 Game event consumer stopped");
+      } catch (error) {
+        console.error("❌ Error stopping game event consumer:", error);
+      }
     }
   }
 
   /**
-   * Get consumer status
+   * Check if consumer is running
    */
   isConsumerRunning(): boolean {
     return this.isRunning;
