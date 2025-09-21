@@ -14,6 +14,10 @@ export interface IUserProfile extends Document {
   wins?: number;
   losses?: number;
   draws?: number;
+  bio?: string;
+  location?: string;
+  timezone?: string;
+  preferredTimeControl?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -79,6 +83,24 @@ const UserProfileSchema = new Schema<IUserProfile>(
       type: Number,
       default: 0,
       min: [0, "Draws cannot be negative"],
+    },
+    bio: {
+      type: String,
+      maxlength: [500, "Bio cannot exceed 500 characters"],
+      trim: true,
+    },
+    location: {
+      type: String,
+      maxlength: [100, "Location cannot exceed 100 characters"],
+      trim: true,
+    },
+    timezone: {
+      type: String,
+      trim: true,
+    },
+    preferredTimeControl: {
+      type: String,
+      enum: ["BULLET", "BLITZ", "RAPID", "CLASSICAL"],
     },
   },
   {

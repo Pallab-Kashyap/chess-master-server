@@ -61,6 +61,12 @@ export interface GameHashDTO {
   result?: GameResult;
   endReason?: string;
   endedAt?: number; // unix timestamp
+  // Additional game state properties
+  drawOffer?: {
+    offeredBy: PlayerColor;
+    timestamp: number;
+  };
+  gameStatus?: GameStatus;
 }
 
 export interface PlayerHashDTO {

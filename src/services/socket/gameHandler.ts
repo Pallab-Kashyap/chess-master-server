@@ -1,11 +1,19 @@
 import { Server, Socket } from "socket.io";
 import { MessageHandler } from "./messageHandler";
 import { SOCKET_MESSAGE_TYPE } from "../../constants";
-import { SocketMoveMessage, MoveDTO, PlayerColor } from "../../types/game";
+import {
+  SocketMoveMessage,
+  MoveDTO,
+  PlayerColor,
+  PlayerDTO,
+  DEFAULT_FEN,
+  timeControlToMs,
+} from "../../types/game";
 import {
   addMoveToGameHash,
   getGameHash,
   updateGameHash,
+  createGameHash,
 } from "../redis/gameHash";
 import {
   socketErrorMessage,
@@ -14,6 +22,7 @@ import {
 import { validateSocketMoveMessage } from "../../utils/validation";
 import APIError from "../../utils/APIError";
 import { ChessGameService } from "../chess/ChessGameService";
+import { KafkaEnhancedChessGameService } from "../chess/KafkaEnhancedChessGameService";
 import GameModel from "../../models/game";
 import { TimeManager } from "../time/TimeManager";
 
@@ -465,6 +474,210 @@ export const registerGameHandler = (
     }
   };
 
+  const handleOfferRematch = async (gameId: string) => {
+    try {
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
+          socketErrorMessage.send("Invalid game ID")
+        );
+        return;
+      }
+
+      // Check if game is completed
+      const game = await GameModel.findById(gameId);
+      if (!game || game.status !== "completed") {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
+          socketErrorMessage.send("Game must be completed to offer rematch")
+        );
+        return;
+      }
+
+      // Check if user was a player in this game
+      const player = game.players.find(
+        (p: any) => p.userId.toString() === userId
+      );
+      if (!player) {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
+          socketErrorMessage.send("You are not a player in this game")
+        );
+        return;
+      }
+
+      // Find opponent
+      const opponent = game.players.find(
+        (p: any) => p.userId.toString() !== userId
+      );
+      if (!opponent) {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
+          socketErrorMessage.send("Opponent not found")
+        );
+        return;
+      }
+
+      // Publish rematch offer event to Kafka using enhanced service
+      const kafkaChessService = await KafkaEnhancedChessGameService.fromGameId(
+        gameId
+      );
+      await kafkaChessService.handleRematchOffer(
+        userId,
+        opponent.userId.toString()
+      );
+
+      // Send rematch offer to game room
+      messageHandler.emitToRoom(
+        gameId,
+        SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
+        socketSuccessMessage.send(
+          {
+            offeredBy: player.color,
+            gameId: gameId,
+            originalGameId: gameId,
+          },
+          `${player.color} offers a rematch`
+        )
+      );
+
+      console.log(`🔄 Rematch offered in game ${gameId} by ${player.color}`);
+    } catch (error) {
+      console.error("❌ Error offering rematch:", error);
+      socket.emit(
+        SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
+        socketErrorMessage.send("Failed to offer rematch")
+      );
+    }
+  };
+
+  const handleAcceptRematch = async (gameId: string) => {
+    try {
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
+          socketErrorMessage.send("Invalid game ID")
+        );
+        return;
+      }
+
+      // Check if game is completed
+      const originalGame = await GameModel.findById(gameId);
+      if (!originalGame || originalGame.status !== "completed") {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
+          socketErrorMessage.send("Original game must be completed")
+        );
+        return;
+      }
+
+      // Check if user was a player in the original game
+      const player = originalGame.players.find(
+        (p: any) => p.userId.toString() === userId
+      );
+      if (!player) {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
+          socketErrorMessage.send("You are not a player in this game")
+        );
+        return;
+      }
+
+      // Find opponent
+      const opponent = originalGame.players.find(
+        (p: any) => p.userId.toString() !== userId
+      );
+      if (!opponent) {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
+          socketErrorMessage.send("Opponent not found")
+        );
+        return;
+      }
+
+      // Create new game for rematch with colors swapped
+      const playerInfo: PlayerDTO[] = [
+        {
+          userId: player.userId.toString(),
+          color: player.color === "white" ? "black" : "white", // Swap colors
+          preRating: player.preRating,
+        },
+        {
+          userId: opponent.userId.toString(),
+          color: opponent.color === "white" ? "black" : "white", // Swap colors
+          preRating: opponent.preRating,
+        },
+      ];
+
+      const newGame = await GameModel.create({
+        players: playerInfo,
+        variant: originalGame.variant,
+        timeControl: originalGame.timeControl,
+        pgn: "",
+        moves: [],
+        initialFen: DEFAULT_FEN,
+      });
+
+      if (!newGame) {
+        throw APIError.internal("Failed to create rematch game");
+      }
+
+      const gameTimeLeft = timeControlToMs(originalGame.timeControl);
+
+      await createGameHash({
+        gameId: newGame.id,
+        playerInfo,
+        timeLeft: gameTimeLeft,
+        gameInfo: {
+          gameVariant: originalGame.variant,
+          gameType: "REMATCH", // Mark as rematch
+          timeControl: originalGame.timeControl,
+        },
+        initialFen: DEFAULT_FEN,
+        moves: [],
+        pgn: "",
+        turn: "white",
+        startedAt: Date.now(),
+        lastMovePlayedAt: Date.now(),
+      });
+
+      // Publish rematch accepted event to Kafka using enhanced service
+      const kafkaChessService = await KafkaEnhancedChessGameService.fromGameId(
+        gameId
+      );
+      await kafkaChessService.handleRematchAcceptance(
+        newGame.id,
+        userId,
+        playerInfo
+      );
+
+      // Notify both players about the new game
+      messageHandler.emitToRoom(
+        gameId,
+        SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
+        socketSuccessMessage.send(
+          {
+            newGameId: newGame.id,
+            originalGameId: gameId,
+            players: playerInfo,
+            timeControl: originalGame.timeControl,
+          },
+          "Rematch accepted! New game created"
+        )
+      );
+
+      console.log(
+        `🔄 Rematch accepted! New game ${newGame.id} created from ${gameId}`
+      );
+    } catch (error) {
+      console.error("❌ Error accepting rematch:", error);
+      socket.emit(
+        SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
+        socketErrorMessage.send("Failed to accept rematch")
+      );
+    }
+  };
+
   // Register event handlers
   socket.on(SOCKET_MESSAGE_TYPE.MOVE, handleMove);
   socket.on(SOCKET_MESSAGE_TYPE.START, handleGameStart);
@@ -472,6 +685,8 @@ export const registerGameHandler = (
   socket.on(SOCKET_MESSAGE_TYPE.RESIGN, handleResign);
   socket.on(SOCKET_MESSAGE_TYPE.OFFER_DRAW, handleOfferDraw);
   socket.on(SOCKET_MESSAGE_TYPE.ACCEPT_DRAW, handleAcceptDraw);
+  socket.on(SOCKET_MESSAGE_TYPE.OFFER_REMATCH, handleOfferRematch);
+  socket.on(SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH, handleAcceptRematch);
   socket.on(SOCKET_MESSAGE_TYPE.TIME_UP, handleTimeUp);
   socket.on(SOCKET_MESSAGE_TYPE.REQUEST_TIME_SYNC, handleRequestTimeSync);
 };

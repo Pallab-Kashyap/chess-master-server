@@ -1,0 +1,71 @@
+version: "3.8"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: chess-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - chess-kafka-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: chess-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      KAFKA_CONFLUENT_METRICS_ENABLE: "true"
+      KAFKA_CONFLUENT_SUPPORT_CUSTOMER_ID: anonymous
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+    networks:
+      - chess-kafka-network
+
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    container_name: chess-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --replica-read-only no
+    networks:
+      - chess-kafka-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    hostname: kafka-ui
+    container_name: chess-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: chess-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - chess-kafka-network
+
+networks:
+  chess-kafka-network:
+    driver: bridge

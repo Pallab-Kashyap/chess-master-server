@@ -119,12 +119,16 @@
   "exclude": [
     "node_modules",
     "dist",
+    "test",
+    "test/**",
     "test-*.ts",
     "test-*.js",
     "debug-*.js",
     "**/*.test.ts",
     "**/*.test.js",
     "**/*.spec.ts",
-    "**/*.spec.js"
+    "**/*.spec.js",
+    "docs",
+    "docs/**"
   ]
 }

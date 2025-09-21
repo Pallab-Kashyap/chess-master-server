@@ -42,6 +42,11 @@ export interface IGame extends Document {
   timeControl: TimeControl;
   startedAt?: Date;
   endedAt?: Date;
+  // Rematch-related fields
+  isRematch?: boolean;
+  hasRematch?: boolean;
+  originalGameId?: Types.ObjectId;
+  rematchGameId?: Types.ObjectId;
   ratingChanges?: {
     whitePlayer: {
       userId: string;
