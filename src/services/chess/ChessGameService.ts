@@ -64,24 +64,47 @@ export class ChessGameService {
     try {
       // Check if it's the correct player's turn
       const currentTurn = this.chess.turn() === "w" ? "white" : "black";
+      console.log(
+        `🔍 Chess.js turn validation - Current turn: ${currentTurn}, Player color: ${playerColor}, FEN: ${this.chess.fen()}`
+      );
+
       if (currentTurn !== playerColor) {
+        console.log(
+          `❌ Turn mismatch - Chess.js says ${currentTurn}'s turn, but ${playerColor} is trying to move`
+        );
         return {
           success: false,
-          error: "It's not your turn",
+          error: `It's not your turn (chess.js says it's ${currentTurn}'s turn, you are ${playerColor})`,
         };
       }
 
       // Attempt to make the move
+      console.log(`🎯 Attempting move: ${move} for ${playerColor}`);
       const chessMove = this.chess.move(move);
       if (!chessMove) {
+        console.log(
+          `❌ Chess.js rejected move: ${move} - Position: ${this.chess.fen()}`
+        );
+        const legalMoves = this.chess.moves();
+        console.log(
+          `   Legal moves: ${legalMoves.slice(0, 10).join(", ")}${
+            legalMoves.length > 10 ? "..." : ""
+          }`
+        );
         return {
           success: false,
-          error: "Invalid move",
+          error: `Invalid move: ${move} (Legal moves available: ${legalMoves.length})`,
         };
       }
 
+      console.log(
+        `✅ Move successful: ${chessMove.san} (${chessMove.from} → ${chessMove.to})`
+      );
+
       // Check game status
+      console.log(`🔍 Checking game status after move...`);
       const gameStatus = this.getGameStatus();
+      console.log(`✅ Game status checked successfully`);
 
       return {
         success: true,

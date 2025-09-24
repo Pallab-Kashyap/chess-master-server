@@ -4,6 +4,7 @@ import {
   getOpponentInRange,
   removePlayerFromQueue,
   checkPlayerAvialabilityForGame,
+  isPlayerInQueue,
 } from "../redis/matchMakingQueue";
 import {
   getPlayerHash,
@@ -194,19 +195,16 @@ export class DynamicMatchMaking {
         `✅ Opponent ${opponentId} found with rating ${opponentDetails.rating}`
       );
 
-      // Verify opponent is still in queue
-      const isAvailable = await checkPlayerAvialabilityForGame(
-        session.gameType,
-        opponentId
-      );
+      // Verify opponent is still in queue (non-destructive check)
+      const isInQueue = await isPlayerInQueue(session.gameType, opponentId);
 
       console.log(
         `🎲 Availability check for ${opponentId}: ${
-          isAvailable ? "AVAILABLE" : "NOT AVAILABLE"
+          isInQueue ? "AVAILABLE" : "NOT AVAILABLE"
         }`
       );
 
-      if (!isAvailable) {
+      if (!isInQueue) {
         console.log(
           `❌ Opponent ${opponentId} not available, removing from queue`
         );
@@ -214,33 +212,81 @@ export class DynamicMatchMaking {
         continue;
       }
 
-      // Create the game
-      const gameResult = await this.createGameForPlayers(
-        session,
-        opponentId,
-        opponentDetails.rating
-      );
+      // Use Redis lock to prevent race condition where both players create games simultaneously
+      const lockKey = `match_lock:${[userId, opponentId].sort().join(":")}`;
+      const lockValue = `${userId}_${Date.now()}`;
 
-      if (gameResult.success) {
-        // Clean up both players' search sessions
-        await this.cancelSearch(userId);
-        await this.cancelSearch(opponentId);
+      // Try to acquire lock with 5 second expiry
+      const lockAcquired = await redis.set(lockKey, lockValue, "EX", 5, "NX");
 
+      if (!lockAcquired) {
         console.log(
-          `🎮 Match found! Created game ${gameResult.gameId} between ${userId} (±${session.currentRange}) and ${opponentId}`
+          `🔒 Match lock already exists for ${userId} and ${opponentId}, skipping`
+        );
+        continue; // Another process is already creating a game for these players
+      }
+
+      try {
+        // Double-check both players are still available after acquiring lock (non-destructive)
+        const stillAvailable = await Promise.all([
+          isPlayerInQueue(session.gameType, userId),
+          isPlayerInQueue(session.gameType, opponentId),
+        ]);
+
+        if (!stillAvailable[0] || !stillAvailable[1]) {
+          console.log(`❌ Players no longer available after lock acquisition`);
+          await redis.del(lockKey);
+          continue;
+        }
+
+        // Now that we're committed to creating the game, remove both players from queue
+        await Promise.all([
+          removePlayerFromQueue(session.gameType, userId),
+          removePlayerFromQueue(session.gameType, opponentId),
+        ]);
+
+        console.log(`✅ Both players confirmed available, removed from queue`);
+
+        // Create the game
+        const gameResult = await this.createGameForPlayers(
+          session,
+          opponentId,
+          opponentDetails.rating
         );
 
-        return {
-          found: true,
-          gameId: gameResult.gameId,
-          opponent: {
-            userId: opponentId,
-            rating: opponentDetails.rating,
-          },
-          currentRange: session.currentRange,
-          searchDuration,
-          ratingChanges: gameResult.ratingChanges,
-        };
+        if (gameResult.success) {
+          // Clean up both players' search sessions
+          await this.cancelSearch(userId);
+          await this.cancelSearch(opponentId);
+
+          console.log(
+            `🎮 Match found! Created game ${gameResult.gameId} between ${userId} (±${session.currentRange}) and ${opponentId}`
+          );
+
+          // Release lock
+          await redis.del(lockKey);
+
+          return {
+            found: true,
+            gameId: gameResult.gameId,
+            opponent: {
+              userId: opponentId,
+              rating: opponentDetails.rating,
+            },
+            currentRange: session.currentRange,
+            searchDuration,
+            ratingChanges: gameResult.ratingChanges,
+          };
+        } else {
+          // Game creation failed, release lock and continue
+          await redis.del(lockKey);
+        }
+      } catch (error) {
+        console.error(
+          `❌ Error in match creation for ${userId} and ${opponentId}:`,
+          error
+        );
+        await redis.del(lockKey);
       }
     }
 
@@ -297,6 +343,171 @@ export class DynamicMatchMaking {
   }
 
   /**
+   * Determine colors for matched players using advanced logic similar to chess.com
+   */
+  private static async determineColors(
+    player1Id: string,
+    player1Rating: number,
+    player2Id: string,
+    player2Rating: number
+  ): Promise<{
+    whitePlayerId: string;
+    blackPlayerId: string;
+    reason: string;
+  }> {
+    // Get recent game history for both players to check color patterns
+    const [player1History, player2History] = await Promise.all([
+      this.getRecentColorHistory(player1Id),
+      this.getRecentColorHistory(player2Id),
+    ]);
+
+    // Factor 1: Rating difference (higher rated player gets black slightly more often for balance)
+    const ratingDiff = Math.abs(player1Rating - player2Rating);
+    let player1WhiteProbability = 0.5; // Start with 50/50
+
+    // Factor 2: Adjust based on rating difference (max 10% adjustment)
+    if (ratingDiff > 100) {
+      const adjustment = Math.min(ratingDiff / 2000, 0.1); // Max 10% adjustment
+      if (player1Rating > player2Rating) {
+        player1WhiteProbability -= adjustment; // Higher rated gets black more often
+      } else {
+        player1WhiteProbability += adjustment; // Lower rated gets white more often
+      }
+    }
+
+    // Factor 3: Recent color balance (stronger factor)
+    const player1WhiteStreak = this.countConsecutiveColors(
+      player1History,
+      "white"
+    );
+    const player1BlackStreak = this.countConsecutiveColors(
+      player1History,
+      "black"
+    );
+    const player2WhiteStreak = this.countConsecutiveColors(
+      player2History,
+      "white"
+    );
+    const player2BlackStreak = this.countConsecutiveColors(
+      player2History,
+      "black"
+    );
+
+    // Strongly discourage streaks of 3+ same colors
+    if (player1WhiteStreak >= 2) {
+      player1WhiteProbability -= 0.3; // Strong bias towards black
+    } else if (player1BlackStreak >= 2) {
+      player1WhiteProbability += 0.3; // Strong bias towards white
+    }
+
+    if (player2WhiteStreak >= 2) {
+      player1WhiteProbability += 0.2; // If opponent had white streak, give player1 better white chance
+    } else if (player2BlackStreak >= 2) {
+      player1WhiteProbability -= 0.2; // If opponent had black streak, give player1 better black chance
+    }
+
+    // Factor 4: Overall color balance in recent games
+    const player1WhiteRatio =
+      player1History.filter((c) => c === "white").length /
+      Math.max(player1History.length, 1);
+    const player2WhiteRatio =
+      player2History.filter((c) => c === "white").length /
+      Math.max(player2History.length, 1);
+
+    // Adjust if someone has had too many of one color recently
+    if (player1WhiteRatio > 0.7) {
+      player1WhiteProbability -= 0.2;
+    } else if (player1WhiteRatio < 0.3) {
+      player1WhiteProbability += 0.2;
+    }
+
+    // Clamp probability between 0.1 and 0.9 to always keep some randomness
+    player1WhiteProbability = Math.max(
+      0.1,
+      Math.min(0.9, player1WhiteProbability)
+    );
+
+    // Make the final decision
+    const player1GetsWhite = Math.random() < player1WhiteProbability;
+
+    let reason = "Random assignment";
+    if (Math.abs(player1WhiteProbability - 0.5) > 0.1) {
+      const factors = [];
+      if (ratingDiff > 100) factors.push(`rating difference (${ratingDiff})`);
+      if (player1WhiteStreak >= 2)
+        factors.push(`player1 white streak (${player1WhiteStreak})`);
+      if (player1BlackStreak >= 2)
+        factors.push(`player1 black streak (${player1BlackStreak})`);
+      if (player2WhiteStreak >= 2)
+        factors.push(`player2 white streak (${player2WhiteStreak})`);
+      if (player2BlackStreak >= 2)
+        factors.push(`player2 black streak (${player2BlackStreak})`);
+      if (player1WhiteRatio > 0.7 || player1WhiteRatio < 0.3)
+        factors.push(`color balance adjustment`);
+
+      reason = `Adjusted for: ${factors.join(", ")} (${Math.round(
+        player1WhiteProbability * 100
+      )}% white chance)`;
+    }
+
+    return {
+      whitePlayerId: player1GetsWhite ? player1Id : player2Id,
+      blackPlayerId: player1GetsWhite ? player2Id : player1Id,
+      reason,
+    };
+  }
+
+  /**
+   * Get recent color history for a player from their last few games
+   */
+  private static async getRecentColorHistory(
+    playerId: string
+  ): Promise<string[]> {
+    try {
+      // Get last 10 games for this player
+      const recentGames = await GameModel.find({
+        "players.userId": playerId,
+        status: "completed",
+      })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select("players");
+
+      const colors = recentGames
+        .map((game) => {
+          const player = game.players.find(
+            (p) => p.userId.toString() === playerId
+          );
+          return player?.color || "";
+        })
+        .filter((color) => color !== "");
+
+      return colors;
+    } catch (error) {
+      console.error(`Error getting color history for ${playerId}:`, error);
+      return []; // Return empty array if error
+    }
+  }
+
+  /**
+   * Count consecutive colors from the most recent games
+   */
+  private static countConsecutiveColors(
+    colorHistory: string[],
+    targetColor: string
+  ): number {
+    let count = 0;
+    for (const color of colorHistory) {
+      if (color === targetColor) {
+        count++;
+      } else {
+        break; // Stop at first different color
+      }
+    }
+    return count;
+  }
+
+  /**
    * Create a game between two matched players
    */
   private static async createGameForPlayers(
@@ -305,15 +516,21 @@ export class DynamicMatchMaking {
     opponentRating: number
   ): Promise<{ success: boolean; gameId?: string; ratingChanges?: any }> {
     try {
-      // Randomly assign colors
-      const isSearcherWhite = Math.random() < 0.5;
+      // Advanced color assignment similar to chess.com
+      const colorAssignment = await this.determineColors(
+        searcherSession.userId,
+        searcherSession.initialRating,
+        opponentId,
+        opponentRating
+      );
 
-      const whitePlayerId = isSearcherWhite
-        ? searcherSession.userId
-        : opponentId;
-      const blackPlayerId = isSearcherWhite
-        ? opponentId
-        : searcherSession.userId;
+      const whitePlayerId = colorAssignment.whitePlayerId;
+      const blackPlayerId = colorAssignment.blackPlayerId;
+
+      console.log(
+        `🎨 Color assignment: ${whitePlayerId} (white) vs ${blackPlayerId} (black)`
+      );
+      console.log(`   Reason: ${colorAssignment.reason}`);
 
       // Calculate potential rating changes before creating the game
       const ratingChanges = await RatingService.calculatePotentialRatingChanges(
@@ -325,12 +542,12 @@ export class DynamicMatchMaking {
       const playerInfo: PlayerDTO[] = [
         {
           userId: searcherSession.userId,
-          color: isSearcherWhite ? "white" : "black",
+          color: searcherSession.userId === whitePlayerId ? "white" : "black",
           preRating: searcherSession.initialRating,
         },
         {
           userId: opponentId,
-          color: isSearcherWhite ? "black" : "white",
+          color: opponentId === whitePlayerId ? "white" : "black",
           preRating: opponentRating,
         },
       ];
@@ -368,12 +585,7 @@ export class DynamicMatchMaking {
         lastMovePlayedAt: Date.now(),
       });
 
-      // Remove both players from the queue
-      await removePlayerFromQueue(
-        searcherSession.gameType,
-        searcherSession.userId
-      );
-      await removePlayerFromQueue(searcherSession.gameType, opponentId);
+      // Note: Players are removed from queue in processSearchRequest before this method is called
 
       return { success: true, gameId: game.id, ratingChanges };
     } catch (error) {

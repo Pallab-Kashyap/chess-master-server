@@ -73,6 +73,7 @@ export const registerGameHandler = (
       }
 
       // Create move object with chess.js move details
+      console.log(`📝 Creating move object for: ${moveResult.move.san}`);
       const move: MoveDTO = {
         move: moveResult.move.san, // Standard Algebraic Notation
         from: moveResult.move.from,
@@ -81,23 +82,31 @@ export const registerGameHandler = (
       };
 
       // Add move to game hash (this updates Redis state)
+      console.log(`💾 Updating Redis with move: ${move.move}`);
       await addMoveToGameHash(validatedData.gameId, move, player.color);
+      console.log(`✅ Redis updated with move`);
 
       // Update time after move
+      console.log(`⏰ Updating time after move...`);
       await TimeManager.updateTimeAfterMove(
         validatedData.gameId,
         player.color,
         move.timeStamp
       );
+      console.log(`✅ Time updated successfully`);
 
       // Update game state with new position
+      console.log(`🔄 Updating game state with new position...`);
       await updateGameHash(validatedData.gameId, {
         pgn: chessGame.getPGN(),
         turn: chessGame.getTurn(),
       });
+      console.log(`✅ Game state updated successfully`);
 
       // Get updated game state
+      console.log(`📊 Retrieving updated game state...`);
       const updatedGameState = await getGameHash(validatedData.gameId);
+      console.log(`✅ Game state retrieved successfully`);
 
       // Prepare response data
       const responseData = {
@@ -134,11 +143,15 @@ export const registerGameHandler = (
         );
       } else {
         // Broadcast the move to all players in the game room
+        console.log(
+          `📡 Broadcasting move to game room: ${validatedData.gameId}`
+        );
         messageHandler.emitToRoom(
           validatedData.gameId,
           SOCKET_MESSAGE_TYPE.MOVE,
           socketSuccessMessage.send(responseData, "Move processed successfully")
         );
+        console.log(`✅ Move broadcast completed`);
       }
     } catch (error) {
       const errorMessage =

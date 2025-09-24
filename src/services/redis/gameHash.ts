@@ -68,10 +68,8 @@ export const addMoveToGameHash = async (
     throw APIError.notFound("Game not found in Redis");
   }
 
-  const currentTurn = gameData.turn as PlayerColor;
-  if (playedBy !== currentTurn) {
-    throw APIError.badRequest("It's not your turn");
-  }
+  // Note: Turn validation is handled by ChessGameService.makeMove()
+  // No need to validate turn here as it's already been validated
 
   // Parse current game state
   const moves: MoveDTO[] = JSON.parse(gameData.moves || "[]");
@@ -89,14 +87,14 @@ export const addMoveToGameHash = async (
   const timeToDeduct = Math.max(0, timeElapsed - increment);
 
   // Update time for the player who just moved
-  if (currentTurn === "white") {
+  if (playedBy === "white") {
     timeLeft.white = Math.max(0, timeLeft.white - timeToDeduct);
   } else {
     timeLeft.black = Math.max(0, timeLeft.black - timeToDeduct);
   }
 
-  // Switch turns
-  const newTurn = getOppositeColor(currentTurn);
+  // Switch turns (opposite of who just played)
+  const newTurn = getOppositeColor(playedBy);
 
   // Update Redis hash
   const updatedData = {

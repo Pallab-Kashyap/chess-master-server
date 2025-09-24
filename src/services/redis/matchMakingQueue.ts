@@ -45,3 +45,12 @@ export const checkPlayerAvialabilityForGame = async (
     playerId
   );
 };
+
+// Non-destructive availability check - just checks if player is in queue
+export const isPlayerInQueue = async (
+  gameType: string,
+  playerId: string
+): Promise<boolean> => {
+  const score = await redis.zscore(`match-making-queue:${gameType}`, playerId);
+  return score !== null;
+};
