@@ -4,11 +4,22 @@ import { updateSocketId } from "../redis/playerHash";
 import { registerGameHandler } from "./gameHandler";
 import { registerMatchmakingHandler } from "./matchmakingHandler";
 import { TimeManager } from "../time/TimeManager";
+import redisPubSub, { GameEventType } from "../redis/pubsub";
+import distributedEventHandler from "../redis/distributedEventHandler";
 
-export const setupSockets = () => {
+export const setupSockets = async () => {
   // Initialize TimeManager with Socket.IO instance
   TimeManager.initialize(io);
 
+  // Initialize Redis Pub/Sub for distributed events
+  await redisPubSub.initialize();
+  console.log(
+    `🔄 Redis Pub/Sub initialized with server ID: ${redisPubSub.getServerId()}`,
+  );
+
+  // Initialize distributed event handler
+  distributedEventHandler.initialize(io);
+  console.log("🔄 Distributed event handler initialized");
 
   io.on("connection", async (socket) => {
     const token =
@@ -16,30 +27,27 @@ export const setupSockets = () => {
 
     console.log("TOKEN:", token);
 
-      try {
-        const payload = verifyToken(token);
-        await updateSocketId(payload.userId, socket.id);
+    try {
+      const payload = verifyToken(token);
+      await updateSocketId(payload.userId, socket.id);
 
-        console.log(
-          `🔌 User ${payload.userId} connected with socket ${socket.id}`
-        );
+      console.log(
+        `🔌 User ${payload.userId} connected with socket ${socket.id}`,
+      );
 
-        // Register game handler with userId
-        registerGameHandler(io, socket, payload.userId);
+      // Register game handler with userId
+      registerGameHandler(io, socket, payload.userId);
 
-        // Register matchmaking handler with userId
-        registerMatchmakingHandler(io, socket, payload.userId);
-      } catch (error) {
-        console.error("❌ Socket authentication failed:", error);
-        socket.disconnect();
-        return;
-      }
-
-
-
+      // Register matchmaking handler with userId
+      registerMatchmakingHandler(io, socket, payload.userId);
+    } catch (error) {
+      console.error("❌ Socket authentication failed:", error);
+      socket.disconnect();
+      return;
+    }
 
     socket.on("ping", () => {
-      socket.emit("pong",  { time: new Date().toISOString() });
+      socket.emit("pong", { time: new Date().toISOString() });
     });
 
     socket.on("disconnect", (reason) => {

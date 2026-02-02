@@ -4,7 +4,7 @@ import { PlayerHashDTO } from "../../types/game";
 export const createPlayerHash = async (
   playerId: string,
   wsId: string,
-  rating: number
+  rating: number,
 ): Promise<void> => {
   await redis.hmset(`player:${playerId}`, {
     playerId,
@@ -19,7 +19,7 @@ export const deletePlayerHash = async (playerId: string): Promise<void> => {
 };
 
 export const getPlayerHash = async (
-  playerId: string
+  playerId: string,
 ): Promise<PlayerHashDTO | null> => {
   const playerHash = await redis.hgetall(`player:${playerId}`);
 
@@ -39,7 +39,7 @@ export const getPlayerHash = async (
 
 export const updateSocketId = async (
   playerId: string,
-  wsId: string
+  wsId: string,
 ): Promise<void> => {
   await redis.hmset(`player:${playerId}`, {
     wsId,
@@ -49,9 +49,14 @@ export const updateSocketId = async (
 
 export const updatePlayerConnectionStatus = async (
   playerId: string,
-  isConnected: boolean
+  isConnected: boolean,
 ): Promise<void> => {
   await redis.hmset(`player:${playerId}`, {
     isPlayerConnected: isConnected.toString(),
   });
+};
+
+export const getSocketId = async (playerId: string): Promise<string | null> => {
+  const socketId = await redis.hget(`player:${playerId}`, "wsId");
+  return socketId || null;
 };

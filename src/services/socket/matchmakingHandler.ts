@@ -2,6 +2,7 @@ import { Server, Socket } from "socket.io";
 import { DynamicMatchMaking } from "../matchmaking/DynamicMatchMaking";
 import { getPlayerHash, createPlayerHash } from "../redis/playerHash";
 import { RatingService } from "../rating/RatingService";
+import redisPubSub, { GameEventType } from "../redis/pubsub";
 
 interface MatchmakingHandlers {
   [key: string]: (data: any) => Promise<void>;
@@ -10,7 +11,7 @@ interface MatchmakingHandlers {
 export const registerMatchmakingHandler = (
   io: Server,
   socket: Socket,
-  userId: string
+  userId: string,
 ): void => {
   const handlers: MatchmakingHandlers = {
     // Client requests to search for a match (called every 3 seconds)
@@ -36,17 +37,16 @@ export const registerMatchmakingHandler = (
           if (!userProfile) {
             // Player hash doesn't exist in Redis, get rating from database
             console.log(
-              `🔍 Player hash not found for ${userId}, getting rating from database`
+              `🔍 Player hash not found for ${userId}, getting rating from database`,
             );
 
             try {
-              const ratingStats = await RatingService.getPlayerRatingStats(
-                userId
-              );
+              const ratingStats =
+                await RatingService.getPlayerRatingStats(userId);
               // Use rapid rating as default for matchmaking
               userRating = ratingStats.rapid.rating;
               console.log(
-                `📊 Retrieved rating ${userRating} from database for user ${userId}`
+                `📊 Retrieved rating ${userRating} from database for user ${userId}`,
               );
 
               // Create player hash in Redis for future use
@@ -54,13 +54,13 @@ export const registerMatchmakingHandler = (
               console.log(`💾 Created player hash in Redis for ${userId}`);
             } catch (error) {
               console.log(
-                `⚠️ Could not get rating from database for ${userId}, using default 400`
+                `⚠️ Could not get rating from database for ${userId}, using default 400`,
               );
             }
           } else {
             userRating = userProfile.rating;
             console.log(
-              `📊 Retrieved rating ${userRating} from Redis for user ${userId}`
+              `📊 Retrieved rating ${userRating} from Redis for user ${userId}`,
             );
           }
 
@@ -75,17 +75,26 @@ export const registerMatchmakingHandler = (
             variant,
             timeControl,
             userRating,
-            socket.id
+            socket.id,
           );
 
           console.log(
-            `✅ Search session started for user ${userId} with rating ${userRating}`
+            `✅ Search session started for user ${userId} with rating ${userRating}`,
           );
         }
 
         const result = await DynamicMatchMaking.processSearchRequest(userId);
 
         if (result.found && result.gameId) {
+          // Publish match found to Redis Pub/Sub for distributed servers
+          await redisPubSub.publishMatchmakingEvent(
+            userId,
+            result.opponent?.userId || "",
+            result.gameId,
+            data.variant || "RAPID",
+            data.timeControl || { initial: 600000, increment: 5000 },
+          );
+
           // Match found! Notify both players
           socket.emit("match_found", {
             success: true,
@@ -137,7 +146,7 @@ export const registerMatchmakingHandler = (
           });
 
           console.log(
-            `⏳ User ${userId} still searching with ±${result.currentRange} range`
+            `⏳ User ${userId} still searching with ±${result.currentRange} range`,
           );
         }
       } catch (error) {
@@ -186,7 +195,7 @@ export const registerMatchmakingHandler = (
       } catch (error) {
         console.error(
           `❌ Error getting search status for user ${userId}:`,
-          error
+          error,
         );
         socket.emit("search_error", {
           success: false,

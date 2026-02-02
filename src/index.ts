@@ -1,4 +1,4 @@
-import server from "./app";
+import server, { initializeSockets } from "./app";
 import connectDB from "./config/DB";
 import { connectRedis } from "./config/redis";
 
@@ -8,6 +8,7 @@ const startServer = async () => {
   try {
     await connectDB();
     await connectRedis();
+    await initializeSockets(); // Initialize sockets after Redis is connected
     server.listen(PORT, () => console.log(`Server running on port: ${PORT}`));
   } catch (error) {
     console.log(error);

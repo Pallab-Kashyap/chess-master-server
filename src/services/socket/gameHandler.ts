@@ -24,11 +24,12 @@ import APIError from "../../utils/APIError";
 import { ChessGameService } from "../chess/ChessGameService";
 import GameModel from "../../models/game";
 import { TimeManager } from "../time/TimeManager";
+import redisPubSub, { GameEventType } from "../redis/pubsub";
 
 export const registerGameHandler = (
   io: Server,
   socket: Socket,
-  userId: string
+  userId: string,
 ) => {
   const messageHandler = new MessageHandler(io);
 
@@ -42,7 +43,7 @@ export const registerGameHandler = (
       if (!gameState) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.MOVE,
-          socketErrorMessage.send("Game not found")
+          socketErrorMessage.send("Game not found"),
         );
         return;
       }
@@ -52,7 +53,7 @@ export const registerGameHandler = (
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.MOVE,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
@@ -63,13 +64,13 @@ export const registerGameHandler = (
       // Validate and make the move (this will also publish Kafka events)
       const moveResult = await chessGame.makeMove(
         validatedData.move,
-        player.color
+        player.color,
       );
 
       if (!moveResult.success) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.MOVE,
-          socketErrorMessage.send(moveResult.error || "Invalid move")
+          socketErrorMessage.send(moveResult.error || "Invalid move"),
         );
         return;
       }
@@ -93,7 +94,7 @@ export const registerGameHandler = (
       await TimeManager.updateTimeAfterMove(
         validatedData.gameId,
         player.color,
-        move.timeStamp
+        move.timeStamp,
       );
       console.log(`✅ Time updated successfully`);
 
@@ -121,6 +122,39 @@ export const registerGameHandler = (
         legalMoves: chessGame.getLegalMoves(),
       };
 
+      // Get time remaining for pub/sub
+      const timeRemaining = updatedGameState
+        ? {
+            white: updatedGameState.whiteTime,
+            black: updatedGameState.blackTime,
+          }
+        : undefined;
+
+      // Publish move to Redis Pub/Sub for distributed servers
+      await redisPubSub.publishMoveEvent(
+        validatedData.gameId,
+        {
+          san: moveResult.move.san,
+          from: moveResult.move.from,
+          to: moveResult.move.to,
+          promotion: moveResult.move.promotion,
+        },
+        chessGame.getFEN(),
+        chessGame.getPGN(),
+        chessGame.getTurn() as "white" | "black",
+        player.color as "white" | "black",
+        userId,
+        timeRemaining,
+        moveResult.gameStatus?.isGameOver
+          ? {
+              isGameOver: true,
+              winner: moveResult.gameStatus.winner as "white" | "black" | null,
+              reason: moveResult.gameStatus.reason,
+              inCheck: moveResult.gameStatus.inCheck,
+            }
+          : undefined,
+      );
+
       // Check if game is over
       if (moveResult.gameStatus?.isGameOver) {
         // Stop the game timer
@@ -139,18 +173,21 @@ export const registerGameHandler = (
               winner: moveResult.gameStatus.winner,
               reason: moveResult.gameStatus.reason,
             },
-            `Game Over: ${moveResult.gameStatus.reason}`
-          )
+            `Game Over: ${moveResult.gameStatus.reason}`,
+          ),
         );
       } else {
         // Broadcast the move to all players in the game room
         console.log(
-          `📡 Broadcasting move to game room: ${validatedData.gameId}`
+          `📡 Broadcasting move to game room: ${validatedData.gameId}`,
         );
         messageHandler.emitToRoom(
           validatedData.gameId,
           SOCKET_MESSAGE_TYPE.MOVE,
-          socketSuccessMessage.send(responseData, "Move processed successfully")
+          socketSuccessMessage.send(
+            responseData,
+            "Move processed successfully",
+          ),
         );
         console.log(`✅ Move broadcast completed`);
       }
@@ -159,11 +196,11 @@ export const registerGameHandler = (
         error instanceof APIError
           ? error.message
           : error instanceof Error
-          ? error.message
-          : "Failed to process move";
+            ? error.message
+            : "Failed to process move";
       socket.emit(
         SOCKET_MESSAGE_TYPE.MOVE,
-        socketErrorMessage.send(errorMessage)
+        socketErrorMessage.send(errorMessage),
       );
     }
   };
@@ -173,7 +210,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.START,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -195,13 +232,13 @@ export const registerGameHandler = (
             gameId,
             ratingChanges: ratingChanges,
           },
-          "Joined game room"
-        )
+          "Joined game room",
+        ),
       );
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.START,
-        socketErrorMessage.send("Failed to join game")
+        socketErrorMessage.send("Failed to join game"),
       );
     }
   };
@@ -211,7 +248,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.REJOIN,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -220,7 +257,7 @@ export const registerGameHandler = (
       if (!gameState) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.REJOIN,
-          socketErrorMessage.send("Game not found")
+          socketErrorMessage.send("Game not found"),
         );
         return;
       }
@@ -230,7 +267,7 @@ export const registerGameHandler = (
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.REJOIN,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
@@ -261,13 +298,13 @@ export const registerGameHandler = (
             legalMoves: chessGame.getLegalMoves(),
             ratingChanges: ratingChanges,
           },
-          "Rejoined game successfully"
-        )
+          "Rejoined game successfully",
+        ),
       );
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.REJOIN,
-        socketErrorMessage.send("Failed to rejoin game")
+        socketErrorMessage.send("Failed to rejoin game"),
       );
     }
   };
@@ -277,7 +314,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.RESIGN,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -286,7 +323,7 @@ export const registerGameHandler = (
       if (!gameState) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.RESIGN,
-          socketErrorMessage.send("Game not found")
+          socketErrorMessage.send("Game not found"),
         );
         return;
       }
@@ -296,7 +333,7 @@ export const registerGameHandler = (
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.RESIGN,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
@@ -308,23 +345,35 @@ export const registerGameHandler = (
       // Stop the game timer
       TimeManager.stopGameTimer(gameId);
 
+      const winner = player.color === "white" ? "black" : "white";
+
+      // Publish resignation to Redis Pub/Sub for distributed servers
+      await redisPubSub.publishGameEvent(
+        GameEventType.PLAYER_RESIGNED,
+        gameId,
+        {
+          winner,
+          resignedPlayer: player.color,
+        },
+      );
+
       // Broadcast resignation to all players
       messageHandler.emitToRoom(
         gameId,
         SOCKET_MESSAGE_TYPE.GAME_OVER,
         socketSuccessMessage.send(
           {
-            winner: player.color === "white" ? "black" : "white",
+            winner,
             reason: "resignation",
             resignedPlayer: player.color,
           },
-          `${player.color} resigned`
-        )
+          `${player.color} resigned`,
+        ),
       );
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.RESIGN,
-        socketErrorMessage.send("Failed to resign")
+        socketErrorMessage.send("Failed to resign"),
       );
     }
   };
@@ -334,7 +383,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_DRAW,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -343,7 +392,7 @@ export const registerGameHandler = (
       if (!gameState) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_DRAW,
-          socketErrorMessage.send("Game not found")
+          socketErrorMessage.send("Game not found"),
         );
         return;
       }
@@ -353,7 +402,7 @@ export const registerGameHandler = (
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_DRAW,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
@@ -363,10 +412,15 @@ export const registerGameHandler = (
       if (!opponent) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_DRAW,
-          socketErrorMessage.send("Opponent not found")
+          socketErrorMessage.send("Opponent not found"),
         );
         return;
       }
+
+      // Publish draw offer to Redis Pub/Sub for distributed servers
+      await redisPubSub.publishGameEvent(GameEventType.DRAW_OFFERED, gameId, {
+        offeredBy: player.color,
+      });
 
       // Send draw offer to opponent
       messageHandler.emitToRoom(
@@ -377,13 +431,13 @@ export const registerGameHandler = (
             offeredBy: player.color,
             gameId: gameId,
           },
-          `${player.color} offers a draw`
-        )
+          `${player.color} offers a draw`,
+        ),
       );
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.OFFER_DRAW,
-        socketErrorMessage.send("Failed to offer draw")
+        socketErrorMessage.send("Failed to offer draw"),
       );
     }
   };
@@ -393,7 +447,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_DRAW,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -402,7 +456,7 @@ export const registerGameHandler = (
       if (!gameState) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_DRAW,
-          socketErrorMessage.send("Game not found")
+          socketErrorMessage.send("Game not found"),
         );
         return;
       }
@@ -412,7 +466,7 @@ export const registerGameHandler = (
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_DRAW,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
@@ -427,6 +481,11 @@ export const registerGameHandler = (
       // Stop the game timer
       TimeManager.stopGameTimer(gameId);
 
+      // Publish draw acceptance to Redis Pub/Sub for distributed servers
+      await redisPubSub.publishGameEvent(GameEventType.DRAW_ACCEPTED, gameId, {
+        acceptedBy: player.color,
+      });
+
       // Broadcast draw acceptance
       messageHandler.emitToRoom(
         gameId,
@@ -437,13 +496,13 @@ export const registerGameHandler = (
             winner: null,
             reason: "agreement",
           },
-          "Game drawn by agreement"
-        )
+          "Game drawn by agreement",
+        ),
       );
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.ACCEPT_DRAW,
-        socketErrorMessage.send("Failed to accept draw")
+        socketErrorMessage.send("Failed to accept draw"),
       );
     }
   };
@@ -456,8 +515,8 @@ export const registerGameHandler = (
         socket.emit(
           SOCKET_MESSAGE_TYPE.TIME_UP,
           socketErrorMessage.send(
-            "Invalid data: gameId and playerColor required"
-          )
+            "Invalid data: gameId and playerColor required",
+          ),
         );
         return;
       }
@@ -465,7 +524,7 @@ export const registerGameHandler = (
       if (!["white", "black"].includes(playerColor)) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.TIME_UP,
-          socketErrorMessage.send("Invalid player color")
+          socketErrorMessage.send("Invalid player color"),
         );
         return;
       }
@@ -475,7 +534,7 @@ export const registerGameHandler = (
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.TIME_UP,
-        socketErrorMessage.send("Failed to process time up")
+        socketErrorMessage.send("Failed to process time up"),
       );
     }
   };
@@ -485,7 +544,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.REQUEST_TIME_SYNC,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -495,7 +554,7 @@ export const registerGameHandler = (
     } catch (error) {
       socket.emit(
         SOCKET_MESSAGE_TYPE.REQUEST_TIME_SYNC,
-        socketErrorMessage.send("Failed to sync time")
+        socketErrorMessage.send("Failed to sync time"),
       );
     }
   };
@@ -505,7 +564,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -515,38 +574,38 @@ export const registerGameHandler = (
       if (!game || game.status !== "completed") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
-          socketErrorMessage.send("Game must be completed to offer rematch")
+          socketErrorMessage.send("Game must be completed to offer rematch"),
         );
         return;
       }
 
       // Check if user was a player in this game
       const player = game.players.find(
-        (p: any) => p.userId.toString() === userId
+        (p: any) => p.userId.toString() === userId,
       );
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
 
       // Find opponent
       const opponent = game.players.find(
-        (p: any) => p.userId.toString() !== userId
+        (p: any) => p.userId.toString() !== userId,
       );
       if (!opponent) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
-          socketErrorMessage.send("Opponent not found")
+          socketErrorMessage.send("Opponent not found"),
         );
         return;
       }
 
       // Handle rematch offer - simple implementation
       console.log(
-        `🔄 Rematch offer from ${userId} to ${opponent.userId.toString()}`
+        `🔄 Rematch offer from ${userId} to ${opponent.userId.toString()}`,
       );
 
       // Send rematch offer to game room
@@ -559,8 +618,8 @@ export const registerGameHandler = (
             gameId: gameId,
             originalGameId: gameId,
           },
-          `${player.color} offers a rematch`
-        )
+          `${player.color} offers a rematch`,
+        ),
       );
 
       console.log(`🔄 Rematch offered in game ${gameId} by ${player.color}`);
@@ -568,7 +627,7 @@ export const registerGameHandler = (
       console.error("❌ Error offering rematch:", error);
       socket.emit(
         SOCKET_MESSAGE_TYPE.OFFER_REMATCH,
-        socketErrorMessage.send("Failed to offer rematch")
+        socketErrorMessage.send("Failed to offer rematch"),
       );
     }
   };
@@ -578,7 +637,7 @@ export const registerGameHandler = (
       if (!gameId || typeof gameId !== "string") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
-          socketErrorMessage.send("Invalid game ID")
+          socketErrorMessage.send("Invalid game ID"),
         );
         return;
       }
@@ -588,31 +647,31 @@ export const registerGameHandler = (
       if (!originalGame || originalGame.status !== "completed") {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
-          socketErrorMessage.send("Original game must be completed")
+          socketErrorMessage.send("Original game must be completed"),
         );
         return;
       }
 
       // Check if user was a player in the original game
       const player = originalGame.players.find(
-        (p: any) => p.userId.toString() === userId
+        (p: any) => p.userId.toString() === userId,
       );
       if (!player) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
-          socketErrorMessage.send("You are not a player in this game")
+          socketErrorMessage.send("You are not a player in this game"),
         );
         return;
       }
 
       // Find opponent
       const opponent = originalGame.players.find(
-        (p: any) => p.userId.toString() !== userId
+        (p: any) => p.userId.toString() !== userId,
       );
       if (!opponent) {
         socket.emit(
           SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
-          socketErrorMessage.send("Opponent not found")
+          socketErrorMessage.send("Opponent not found"),
         );
         return;
       }
@@ -665,7 +724,7 @@ export const registerGameHandler = (
 
       // Handle rematch acceptance - simple implementation
       console.log(
-        `🔄 Rematch accepted! New game ${newGame.id} created from ${gameId}`
+        `🔄 Rematch accepted! New game ${newGame.id} created from ${gameId}`,
       );
 
       // Notify both players about the new game
@@ -679,18 +738,18 @@ export const registerGameHandler = (
             players: playerInfo,
             timeControl: originalGame.timeControl,
           },
-          "Rematch accepted! New game created"
-        )
+          "Rematch accepted! New game created",
+        ),
       );
 
       console.log(
-        `🔄 Rematch accepted! New game ${newGame.id} created from ${gameId}`
+        `🔄 Rematch accepted! New game ${newGame.id} created from ${gameId}`,
       );
     } catch (error) {
       console.error("❌ Error accepting rematch:", error);
       socket.emit(
         SOCKET_MESSAGE_TYPE.ACCEPT_REMATCH,
-        socketErrorMessage.send("Failed to accept rematch")
+        socketErrorMessage.send("Failed to accept rematch"),
       );
     }
   };

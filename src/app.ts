@@ -17,14 +17,17 @@ export const io = new Server(server, {
   },
 });
 
-setupSockets();
+// Initialize sockets asynchronously
+export const initializeSockets = async () => {
+  await setupSockets();
+};
 
 app.use(express.json());
 
 app.use(
   cors({
     origin: "*",
-  })
+  }),
 );
 
 dotenv.config();
