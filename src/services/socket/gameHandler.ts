@@ -22,7 +22,6 @@ import {
 import { validateSocketMoveMessage } from "../../utils/validation";
 import APIError from "../../utils/APIError";
 import { ChessGameService } from "../chess/ChessGameService";
-import { KafkaEnhancedChessGameService } from "../chess/KafkaEnhancedChessGameService";
 import GameModel from "../../models/game";
 import { TimeManager } from "../time/TimeManager";
 
@@ -58,11 +57,14 @@ export const registerGameHandler = (
         return;
       }
 
-      // Initialize chess game service
+      // Initialize Kafka-enhanced chess game service
       const chessGame = await ChessGameService.fromGameId(validatedData.gameId);
 
-      // Validate and make the move
-      const moveResult = chessGame.makeMove(validatedData.move, player.color);
+      // Validate and make the move (this will also publish Kafka events)
+      const moveResult = await chessGame.makeMove(
+        validatedData.move,
+        player.color
+      );
 
       if (!moveResult.success) {
         socket.emit(
@@ -124,8 +126,7 @@ export const registerGameHandler = (
         // Stop the game timer
         TimeManager.stopGameTimer(validatedData.gameId);
 
-        // Save game to database
-        await chessGame.saveGameToDatabase();
+        // Game will be saved to database via Kafka events processing
 
         // Broadcast game over
         messageHandler.emitToRoom(
@@ -238,7 +239,7 @@ export const registerGameHandler = (
       const game = await GameModel.findById(gameId);
       const ratingChanges = game?.ratingChanges || null;
 
-      // Initialize chess game to get current position
+      // Initialize Kafka-enhanced chess game to get current position
       const chessGame = await ChessGameService.fromGameId(gameId);
 
       // Join the game room
@@ -258,7 +259,6 @@ export const registerGameHandler = (
             pgn: chessGame.getPGN(),
             turn: chessGame.getTurn(),
             legalMoves: chessGame.getLegalMoves(),
-            gameStatus: chessGame.getGameStatus(),
             ratingChanges: ratingChanges,
           },
           "Rejoined game successfully"
@@ -301,7 +301,7 @@ export const registerGameHandler = (
         return;
       }
 
-      // Handle resignation
+      // Handle resignation with Kafka events
       const chessGame = await ChessGameService.fromGameId(gameId);
       await chessGame.handleResignation(player.color);
 
@@ -407,9 +407,22 @@ export const registerGameHandler = (
         return;
       }
 
-      // Use ChessGameService to handle draw by agreement (includes rating calculations)
-      const chessGame = await ChessGameService.fromGameId(gameId);
-      await chessGame.handleDrawByAgreement();
+      // Find the player accepting draw
+      const player = gameState.playerInfo.find((p) => p.userId === userId);
+      if (!player) {
+        socket.emit(
+          SOCKET_MESSAGE_TYPE.ACCEPT_DRAW,
+          socketErrorMessage.send("You are not a player in this game")
+        );
+        return;
+      }
+
+      // Handle draw acceptance - update game in MongoDB
+      await GameModel.findByIdAndUpdate(gameId, {
+        status: "completed",
+        result: { type: "draw", method: "agreement" },
+        endedAt: new Date(),
+      });
 
       // Stop the game timer
       TimeManager.stopGameTimer(gameId);
@@ -531,13 +544,9 @@ export const registerGameHandler = (
         return;
       }
 
-      // Publish rematch offer event to Kafka using enhanced service
-      const kafkaChessService = await KafkaEnhancedChessGameService.fromGameId(
-        gameId
-      );
-      await kafkaChessService.handleRematchOffer(
-        userId,
-        opponent.userId.toString()
+      // Handle rematch offer - simple implementation
+      console.log(
+        `🔄 Rematch offer from ${userId} to ${opponent.userId.toString()}`
       );
 
       // Send rematch offer to game room
@@ -654,14 +663,9 @@ export const registerGameHandler = (
         lastMovePlayedAt: Date.now(),
       });
 
-      // Publish rematch accepted event to Kafka using enhanced service
-      const kafkaChessService = await KafkaEnhancedChessGameService.fromGameId(
-        gameId
-      );
-      await kafkaChessService.handleRematchAcceptance(
-        newGame.id,
-        userId,
-        playerInfo
+      // Handle rematch acceptance - simple implementation
+      console.log(
+        `🔄 Rematch accepted! New game ${newGame.id} created from ${gameId}`
       );
 
       // Notify both players about the new game

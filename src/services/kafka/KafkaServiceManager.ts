@@ -49,6 +49,7 @@ export class KafkaServiceManager {
 
       // Start the consumer to process game events
       await this.consumer.initialize();
+      await this.consumer.startConsuming(); // Add this line to actually start consuming
 
       // Initialize the publisher
       await this.publisher.initialize();

@@ -9,30 +9,37 @@ export const setupSockets = () => {
   // Initialize TimeManager with Socket.IO instance
   TimeManager.initialize(io);
 
+
   io.on("connection", async (socket) => {
-    const token = socket.handshake.auth?.token;
+    const token =
+      socket.handshake.auth?.token || socket.handshake.headers?.auth;
 
-    try {
-      const payload = verifyToken(token);
-      await updateSocketId(payload.userId, socket.id);
+    console.log("TOKEN:", token);
 
-      console.log(
-        `🔌 User ${payload.userId} connected with socket ${socket.id}`
-      );
+      try {
+        const payload = verifyToken(token);
+        await updateSocketId(payload.userId, socket.id);
 
-      // Register game handler with userId
-      registerGameHandler(io, socket, payload.userId);
+        console.log(
+          `🔌 User ${payload.userId} connected with socket ${socket.id}`
+        );
 
-      // Register matchmaking handler with userId
-      registerMatchmakingHandler(io, socket, payload.userId);
-    } catch (error) {
-      console.error("❌ Socket authentication failed:", error);
-      socket.disconnect();
-      return;
-    }
+        // Register game handler with userId
+        registerGameHandler(io, socket, payload.userId);
+
+        // Register matchmaking handler with userId
+        registerMatchmakingHandler(io, socket, payload.userId);
+      } catch (error) {
+        console.error("❌ Socket authentication failed:", error);
+        socket.disconnect();
+        return;
+      }
+
+
+
 
     socket.on("ping", () => {
-      socket.emit("pong");
+      socket.emit("pong",  { time: new Date().toISOString() });
     });
 
     socket.on("disconnect", (reason) => {

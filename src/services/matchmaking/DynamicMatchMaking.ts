@@ -13,6 +13,7 @@ import {
 } from "../redis/playerHash";
 import { createGameHash } from "../redis/gameHash";
 import GameModel from "../../models/game";
+import { ChessGameService } from "../chess/ChessGameService";
 import {
   PlayerDTO,
   TimeControl,
@@ -584,6 +585,8 @@ export class DynamicMatchMaking {
         startedAt: Date.now(),
         lastMovePlayedAt: Date.now(),
       });
+
+      console.log(`🎮 Game ${game.id} created successfully`);
 
       // Note: Players are removed from queue in processSearchRequest before this method is called
 

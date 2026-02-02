@@ -22,6 +22,9 @@ const auth = asyncWrapper(
       req.user = decoded;
       next();
     } catch (error) {
+      if(typeof error === 'string') {
+        throw APIError.unauthorized(error);
+      }
       throw APIError.unauthorized("Invalid token");
     }
   }

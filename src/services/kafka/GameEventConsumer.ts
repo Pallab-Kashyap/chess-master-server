@@ -1,6 +1,8 @@
 import { Consumer } from "kafkajs";
 import KafkaManager from "../../config/kafka";
-import { KAFKA_TOPICS } from "../../types/kafka";
+import { KAFKA_TOPICS, GAME_EVENT_TYPES } from "../../types/kafka";
+import GameModel from "../../models/game";
+import { RatingService } from "../rating/RatingService";
 
 export class GameEventConsumer {
   private consumer: Consumer | null = null;
@@ -108,16 +110,50 @@ export class GameEventConsumer {
    * Handle game lifecycle events
    */
   private async handleGameEvent(eventData: any): Promise<void> {
-    // Process game events (start, end, rematch, etc.)
-    console.log(`🎮 Game event: ${eventData.eventType}`, eventData.gameId);
+    try {
+      console.log(
+        `🎮 Processing game event: ${eventData.event?.type}`,
+        eventData.gameId
+      );
+
+      const { gameId, event } = eventData;
+
+      switch (event?.type) {
+        case GAME_EVENT_TYPES.GAME_STARTED:
+          await this.handleGameStarted(gameId, event);
+          break;
+        case GAME_EVENT_TYPES.GAME_ENDED:
+          await this.handleGameEnded(gameId, event);
+          break;
+        case GAME_EVENT_TYPES.PLAYER_RESIGNED:
+          await this.handlePlayerResigned(gameId, event);
+          break;
+        case GAME_EVENT_TYPES.DRAW_ACCEPTED:
+          await this.handleDrawAccepted(gameId, event);
+          break;
+        default:
+          console.log(`🎮 Unhandled game event: ${event?.type}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error handling game event:`, error);
+    }
   }
 
   /**
    * Handle move events
    */
   private async handleMoveEvent(eventData: any): Promise<void> {
-    // Process move events
-    console.log(`♟️  Move event: ${eventData.move}`, eventData.gameId);
+    try {
+      console.log(`♟️  Processing move event for game: ${eventData.gameId}`);
+
+      const { gameId, event } = eventData;
+
+      if (event?.type === GAME_EVENT_TYPES.MOVE_MADE) {
+        await this.handleMoveMade(gameId, event);
+      }
+    } catch (error) {
+      console.error(`❌ Error handling move event:`, error);
+    }
   }
 
   /**
@@ -148,6 +184,133 @@ export class GameEventConsumer {
    */
   isConsumerRunning(): boolean {
     return this.isRunning;
+  }
+
+  // Specific event handlers
+
+  /**
+   * Handle game started event
+   */
+  private async handleGameStarted(gameId: string, event: any): Promise<void> {
+    console.log(`🆕 Game started: ${gameId}`);
+    // Game is already created in database during matchmaking
+    // We could update additional metadata here if needed
+  }
+
+  /**
+   * Handle game ended event
+   */
+  private async handleGameEnded(gameId: string, event: any): Promise<void> {
+    try {
+      console.log(
+        `🏁 Game ended: ${gameId}, result: ${event.result?.winner || "draw"}`
+      );
+
+      // Update the game in database with final result
+      await GameModel.findByIdAndUpdate(gameId, {
+        status: "completed",
+        result: {
+          winner: event.result?.winner || null,
+          reason: event.result?.reason || "unknown",
+          method: event.result?.reason || "game_ended",
+        },
+        endedAt: new Date(event.timestamp),
+        pgn: event.finalPgn,
+        finalFen: event.finalFen,
+      });
+
+      console.log(
+        `✅ Game ${gameId} saved with result: ${event.result?.winner || "draw"}`
+      );
+    } catch (error) {
+      console.error(`❌ Error saving game end for ${gameId}:`, error);
+    }
+  }
+
+  /**
+   * Handle player resignation
+   */
+  private async handlePlayerResigned(
+    gameId: string,
+    event: any
+  ): Promise<void> {
+    try {
+      console.log(
+        `🏳️ Player resigned in game: ${gameId}, player: ${event.resignedPlayer}`
+      );
+
+      const winner = event.resignedPlayer === "white" ? "black" : "white";
+
+      await GameModel.findByIdAndUpdate(gameId, {
+        status: "completed",
+        result: {
+          winner: winner,
+          reason: "resignation",
+          method: "resignation",
+        },
+        endedAt: new Date(event.timestamp),
+      });
+
+      console.log(
+        `✅ Resignation processed for game ${gameId}, winner: ${winner}`
+      );
+    } catch (error) {
+      console.error(`❌ Error processing resignation for ${gameId}:`, error);
+    }
+  }
+
+  /**
+   * Handle draw accepted
+   */
+  private async handleDrawAccepted(gameId: string, event: any): Promise<void> {
+    try {
+      console.log(`🤝 Draw accepted in game: ${gameId}`);
+
+      await GameModel.findByIdAndUpdate(gameId, {
+        status: "completed",
+        result: {
+          winner: null,
+          reason: "agreement",
+          method: "draw_agreement",
+        },
+        endedAt: new Date(event.timestamp),
+      });
+
+      console.log(`✅ Draw processed for game ${gameId}`);
+    } catch (error) {
+      console.error(`❌ Error processing draw for ${gameId}:`, error);
+    }
+  }
+
+  /**
+   * Handle move made event
+   */
+  private async handleMoveMade(gameId: string, event: any): Promise<void> {
+    try {
+      console.log(
+        `♟️ Move made in game: ${gameId}, move: ${event.move?.san}, player: ${event.player}`
+      );
+
+      // Add move to the game's moves array and update PGN
+      const moveData = {
+        move: event.move?.san || event.move?.move,
+        from: event.move?.from,
+        to: event.move?.to,
+        timeStamp: event.timestamp,
+        player: event.player,
+      };
+
+      await GameModel.findByIdAndUpdate(gameId, {
+        $push: { moves: moveData },
+        pgn: event.pgn,
+        currentFen: event.fen,
+        lastMoveAt: new Date(event.timestamp),
+      });
+
+      console.log(`✅ Move saved for game ${gameId}: ${event.move?.san}`);
+    } catch (error) {
+      console.error(`❌ Error saving move for ${gameId}:`, error);
+    }
   }
 }
 

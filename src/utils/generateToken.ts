@@ -3,7 +3,7 @@ import { UserPayload } from "../types/express";
 
 export const generateToken = (
   playload: any,
-  expiresIn: SignOptions["expiresIn"] = "5m"
+  expiresIn: SignOptions["expiresIn"] = "5h"
 ) => {
   const secret = process.env.JWT_SECRET;
 

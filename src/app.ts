@@ -8,7 +8,6 @@ import { setupSockets } from "./services/socket/socket";
 import userRouter from "./routes/userRoutes";
 import gameRouter from "./routes/gameRoutes";
 import ratingRouter from "./routes/ratingRoutes";
-import KafkaServiceManager from "./services/kafka/KafkaServiceManager";
 
 const app = express();
 const server = createServer(app);
@@ -19,23 +18,6 @@ export const io = new Server(server, {
 });
 
 setupSockets();
-
-// Initialize Kafka services
-const initializeKafka = async () => {
-  try {
-    const kafkaManager = KafkaServiceManager.getInstance();
-    await kafkaManager.initialize();
-    console.log("✅ Kafka services initialized successfully");
-  } catch (error) {
-    console.error("❌ Failed to initialize Kafka services:", error);
-    console.log(
-      "⚠️ Continuing without Kafka - game events will not be persisted optimally"
-    );
-  }
-};
-
-// Initialize Kafka services (non-blocking)
-initializeKafka();
 
 app.use(express.json());
 

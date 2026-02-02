@@ -241,9 +241,9 @@ export class KafkaEnhancedChessGameService {
   }
 
   /**
-   * Get current game status
+   * Get current game status (public method)
    */
-  private getGameStatus(): {
+  getGameStatus(): {
     isGameOver: boolean;
     result?: GameResult;
     winner?: Winner;
@@ -280,11 +280,11 @@ export class KafkaEnhancedChessGameService {
         status.reason = "checkmate";
       } else if (this.chess.isStalemate()) {
         status.result = "1/2-1/2";
-        status.winner = null;
+        status.winner = undefined;
         status.reason = "stalemate";
       } else if (this.chess.isDraw()) {
         status.result = "1/2-1/2";
-        status.winner = null;
+        status.winner = undefined;
         status.reason = "draw";
       }
     }
@@ -466,6 +466,46 @@ export class KafkaEnhancedChessGameService {
    */
   getHistory(): string[] {
     return this.chess.history();
+  }
+
+  /**
+   * Get current turn
+   */
+  getTurn(): PlayerColor {
+    return this.chess.turn() === "w" ? "white" : "black";
+  }
+
+  /**
+   * Get legal moves for current position
+   */
+  getLegalMoves(): string[] {
+    return this.chess.moves();
+  }
+
+  /**
+   * Handle resignation (alias for handlePlayerResignation)
+   */
+  async handleResignation(resignedPlayer: PlayerColor): Promise<void> {
+    await this.handlePlayerResignation(resignedPlayer);
+  }
+
+  /**
+   * Handle draw by agreement (alias for handleDrawAcceptance)
+   */
+  async handleDrawByAgreement(acceptedBy: PlayerColor): Promise<void> {
+    await this.handleDrawAcceptance(acceptedBy);
+  }
+
+  /**
+   * Save game to database (for compatibility with original service)
+   */
+  async saveGameToDatabase(): Promise<void> {
+    // This method is now handled by Kafka consumers
+    // So we just flush any pending events to ensure they're processed
+    await this.flushEvents();
+    console.log(
+      `💾 Game ${this.gameId} events flushed to Kafka for database storage`
+    );
   }
 }
 
